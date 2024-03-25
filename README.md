@@ -1,6 +1,6 @@
 # Axelar<>XRPL Testnet Instructions
 
-These instructions describe how to perform token transfers between Ethereum Sepolia and the XRPL Testnet as well as GMP calls from XRPL to Ethereum Sepolia, via the Axelar Amplifier.
+These instructions describe how to perform token transfers between Ethereum Sepolia and the XRPL Testnet as well as GMP calls from XRPL Testnet to Ethereum Sepolia, via the Axelar Amplifier.
 
 - The following tokens are currently supported:
     * [`WETH`](https://sepolia.etherscan.io/token/0x7b79995e5f793a07bc00c21412e50ecae098e7f9) on Ethereum Sepolia (18 decimals)
