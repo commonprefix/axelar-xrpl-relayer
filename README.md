@@ -80,7 +80,7 @@ This section outlines how to transfer any of the supported tokens between Ethere
     cast send $AXELAR_GATEWAY "sendToken(string destinationChain, string destinationAddress, string symbol, uint256 amount)" "xrpl" $XRPL_DESTINATION "WETH" $(cast to-wei 0.1) --private-key $PRIVATE_KEY --rpc-url $SEPOLIA_RPC_URL
     ```
 5. Within a few minutes, your designated recipient address should receive the bridged `ETH` on XRPL.
-    - Check that your recipient account received the ETH tokens via the [XRPL Testnet explorer](https://testnet.xrpl.org/)
+    - Check that your recipient account received the ETH tokens via an [XRPL Testnet explorer](https://testnet.xrpl.org/)
 
 ### Bridge wrapped `ETH` back to Ethereum Sepolia
 
@@ -176,7 +176,7 @@ This section outlines how to transfer any of the supported tokens between Ethere
     cast send $AXELAR_GATEWAY "sendToken(string destinationChain, string destinationAddress, string symbol, uint256 amount)" "xrpl" $XRPL_DESTINATION "axlXRP" 1000000 --private-key $PRIVATE_KEY --rpc-url $SEPOLIA_RPC_URL
     ```
 3. Within a few minutes, your designated recipient address should receive the bridged `XRP` on XRPL Testnet:
-    - Check that your recipient account received the ETH tokens via the [XRPL Testnet explorer](https://testnet.xrpl.org/)
+    - Check that your recipient account received the ETH tokens via an [XRPL Testnet explorer](https://testnet.xrpl.org/)
 
 ## General Message Passing
 
