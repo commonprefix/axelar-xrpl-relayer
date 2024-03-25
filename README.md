@@ -1,10 +1,8 @@
 # Axelar<>XRPL Testnet Instructions
 
-- Supported chains:
-    * Ethereum Sepolia
-    * XRPL Testnet
+These instructions describe how to perform token transfers between Ethereum Sepolia and the XRPL Testnet as well as GMP calls from XRPL to Ethereum Sepolia, via the Axelar Amplifier.
 
-- Supported tokens:
+- The following tokens are currently supported:
     * [`WETH`](https://sepolia.etherscan.io/token/0x7b79995e5f793a07bc00c21412e50ecae098e7f9) on Ethereum Sepolia (18 decimals)
     * `ETH` on XRPL Testnet (18 decimals)
     * `XRP` on XRPL Testnet (6 decimals)
@@ -12,31 +10,31 @@
 
 ## Deployment Addresses
 
-- `AxelarGateway` on Ethereum Sepolia: [`0x72F28C8d7b16088d49F27B5D1D51DB66BA966684`](https://sepolia.etherscan.io/address/0x72F28C8d7b16088d49F27B5D1D51DB66BA966684)
+- `AxelarGateway` smart contract on Ethereum Sepolia: [`0x72F28C8d7b16088d49F27B5D1D51DB66BA966684`](https://sepolia.etherscan.io/address/0x72F28C8d7b16088d49F27B5D1D51DB66BA966684)
 - XRPL multisig account on XRPL Testnet: [`rfEf91bLxrTVC76vw1W3Ur8Jk4Lwujskmb`](https://testnet.xrpl.org/accounts/rfEf91bLxrTVC76vw1W3Ur8Jk4Lwujskmb)
 
 ## Disclaimers
 
-- This is a **testnet deployment**. Any mainnet funds that are transferred to any of the addresses mentioned in this doc may be irrecoverable.
+- This is a **testnet deployment**. Any mainnet funds that are transferred to the addresses mentioned in this doc may be irrecoverable.
 - **Please do not use any mainnet wallet** to perform any of the actions outlined in this doc.
 - Gas payments are not currently supported. You do not need to call the `AxelarGasService` on Ethereum Sepolia to refund the relayer. Our relayer is running 'pro bono.'
 - The bridge does not charge any fees/tolls at the moment.
-- The `IAxelarGateway` interface and `AxelarExecutable` smart contract in this repo are _different_ to those currently deployed by Axelar. Instructions you may find elsewhere are likely not entirely compatible with this testnet deployment.
+- The `IAxelarGateway` interface and `AxelarExecutable` smart contract in this repo are _different_ to those currently deployed by Axelar. Any instructions you find elsewhere will likely not be fully compatible with this testnet deployment.
+- The deployment addresses are subject to change.
 - Only one validator is currently used to secure this testnet bridge.
 - Only one relayer is currently active.
 - Since this is a testnet deployment, there is no guaranteed SLA. Please let us know if your transactions are taking too long to appear on the destination chain.
-- The deployment addresses are subject to change.
 
 ## Setup
 
 - These instructions mainly rely on Foundry's `cast` command to perform Ethereum Sepolia transactions (although you can use any library of your choice). Foundry can be installed using the following instructions: [book.getfoundry.sh/getting-started/installation](https://book.getfoundry.sh/getting-started/installation).
-- You can use some RPC provider like Alchemy or Infura to broadcast transcations to Ethereum Sepolia. These instructions assume that you have set the `SEPOLIA_RPC_URL` environment variable to a working Sepolia RPC URL.
-- Generate a new wallet for each side. For Ethereum Sepolia, you can use the `cast wallet new` command. These instructions assume that you have set the `PRIVATE_KEY` environment variable to a funded Sepolia wallet private key.
+- You can use an RPC provider like Alchemy or Infura to broadcast transactions to Ethereum Sepolia. These instructions assume that you have set the `SEPOLIA_RPC_URL` environment variable to a working Sepolia RPC URL.
+- Generate a new wallet for each side. For Ethereum Sepolia, you can run `cast wallet new`. These instructions assume that you have set the `PRIVATE_KEY` environment variable to a funded Sepolia wallet private key.
 - Fund your accounts using a faucet, such as these:
     * Ethereum Sepolia `ETH` faucet: [alchemy.com/faucets/ethereum-sepolia](https://www.alchemy.com/faucets/ethereum-sepolia)
     * XRPL Testnet `XRP` faucet: [faucet.tequ.dev](https://faucet.tequ.dev/)
-- To bridge to XRPL Testnet, you can use an XRPL library of your preference, such as `xrpl.js` or `xrpl-py`.
-- To perform general message passing (GMP) from XRPL, the Ethereum Sepolia smart contract (that you wish to call) needs to implement the [`AxelarExecutable`](https://github.com/commonprefix/axelar-xrpl-solidity/blob/main/src/executable/AxelarExecutable.sol) contract. Please keep in mind that this contract is not the standard `AxelarExecutable` contract that you will find on other Axelar resources.
+- To bridge to XRPL Testnet, you can use an XRPL library of your choice, such as `xrpl.js` or `xrpl-py`.
+- To perform general message passing (GMP) from XRPL to Ethereum Sepolia, the Ethereum smart contract (that you wish to call) needs to implement the [`AxelarExecutable`](https://github.com/commonprefix/axelar-xrpl-solidity/blob/main/src/executable/AxelarExecutable.sol) contract. Again, please keep in mind that this contract is not the standard `AxelarExecutable` contract that you will find on other Axelar resources.
 
 ## Token Bridging
 
@@ -71,7 +69,7 @@ This section outlines how to transfer any of the supported tokens between Ethere
     AXELAR_GATEWAY=0x72F28C8d7b16088d49F27B5D1D51DB66BA966684
     cast send $WETH "approve(address guy, uint256 amount)" $AXELAR_GATEWAY $(cast to-wei 0.1) --private-key $PRIVATE_KEY --rpc-url $SEPOLIA_RPC_URL
     ```
-    - Alternatively, [via Etherescan](https://sepolia.etherscan.io/token/0x7b79995e5f793a07bc00c21412e50ecae098e7f9#writeContract), select "Connect to Web3" to connect your wallet, expand the `approve` dropdown, type the `AxelarGateway`'s address (`0x832B2dfe8a225550C144626111660f61B8690efD`) in the `guy` input, and the amount of `ETH` that you would like to bridge (e.g., `0.1`) in the input under `deposit`, and click "Write" to perform the transcation.
+    - Alternatively, [via Etherescan](https://sepolia.etherscan.io/token/0x7b79995e5f793a07bc00c21412e50ecae098e7f9#writeContract), select "Connect to Web3" to connect your wallet, expand the `approve` dropdown, type the `AxelarGateway`'s address (`0x832B2dfe8a225550C144626111660f61B8690efD`) in the address input, and the amount of `ETH` that you would like to bridge (e.g., `0.1`) in the input under `deposit`, and click "Write" to perform the transcation.
 4. On Ethereum Sepolia, call `AxelarGateway.sendToken()` to bridge your `WETH`:
     - Using `cast`:
     ```sh
@@ -80,7 +78,7 @@ This section outlines how to transfer any of the supported tokens between Ethere
     cast send $AXELAR_GATEWAY "sendToken(string destinationChain, string destinationAddress, string symbol, uint256 amount)" "xrpl" $XRPL_DESTINATION "WETH" $(cast to-wei 0.1) --private-key $PRIVATE_KEY --rpc-url $SEPOLIA_RPC_URL
     ```
 5. Within a few minutes, your designated recipient address should receive the bridged `ETH` on XRPL.
-    - Check that your recipient account received the ETH tokens via an [XRPL Testnet explorer](https://testnet.xrpl.org/)
+    - Check that your recipient account received the `ETH` tokens via an [XRPL Testnet explorer](https://testnet.xrpl.org/)
 
 ### Bridge wrapped `ETH` back to Ethereum Sepolia
 
@@ -105,7 +103,7 @@ This section outlines how to transfer any of the supported tokens between Ethere
         {
             Memo: {
                 MemoData: "657468657265756D", // hex("ethereum")
-                MemoType: "64657374696E6174696F6E5F636861696E", // hex("destination_address")
+                MemoType: "64657374696E6174696F6E5F636861696E", // hex("destination_chain")
             },
         },
         {
@@ -141,7 +139,7 @@ This section outlines how to transfer any of the supported tokens between Ethere
         {
             Memo: {
                 MemoData: "657468657265756D", // hex("ethereum")
-                MemoType: "64657374696E6174696F6E5F636861696E", // hex("destination_address")
+                MemoType: "64657374696E6174696F6E5F636861696E", // hex("destination_chain")
             },
         },
         {
@@ -155,7 +153,7 @@ This section outlines how to transfer any of the supported tokens between Ethere
 }
 ```
 2. Within a few minutes, your designated recipient address should receive the bridged `XRP` on Ethereum Sepolia, as `axlXRP`:
-    - Check that your recipient account received the `XRP` tokens via an [Ethereum Sepolia explorer](https://sepolia.etherscan.io/).
+    - Check that your recipient account received the `XRP` tokens via an [explorer](https://sepolia.etherscan.io/).
     - Please keep in mind that the explorer might take a few minutes to index the transaction.
 
 ### Bridge wrapped `XRP` (`axlXRP`) back to XRPL Testnet
@@ -176,23 +174,23 @@ This section outlines how to transfer any of the supported tokens between Ethere
     cast send $AXELAR_GATEWAY "sendToken(string destinationChain, string destinationAddress, string symbol, uint256 amount)" "xrpl" $XRPL_DESTINATION "axlXRP" 1000000 --private-key $PRIVATE_KEY --rpc-url $SEPOLIA_RPC_URL
     ```
 3. Within a few minutes, your designated recipient address should receive the bridged `XRP` on XRPL Testnet:
-    - Check that your recipient account received the ETH tokens via an [XRPL Testnet explorer](https://testnet.xrpl.org/)
+    - Check that your recipient account received the ETH tokens via an [explorer](https://testnet.xrpl.org/).
 
 ## General Message Passing
 
-This section outlines how to call a function of a smart contract on Ethereum Sepolia from XRPL.
+This section outlines how to call a function of a smart contract on Ethereum Sepolia from XRPL Testnet.
 
 1. Compute the payload (let's call it `gmpPayload`) that you would like to call your Ethereum Sepolia `AxelarExecutable` smart contract's `_execute` function with.
-2. Create a `Payment` transaction in the same format as the ones given above, with the following changes:
-    * Set the transaction `Amount` depending on what token you would like to bridge to the destination smart contract during GMP. If you just want to GMP, without any token transfer, set the `Amount` to `1` drop.
+2. Create a `Payment` transaction in the same format as the ones given in the previous section, with the following changes:
+    * Set the transaction `Amount` as in the previous section, depending on what token you would like to transfer to the destination smart contract during GMP (either `{ currency: "ETH", ... }` for ETH or just the number of drops for XRP). If you just want to GMP, without any token transfer, set the `Amount` to `1` drop.
     * Set the destination address's `MemoData` field to the address of your Ethereum Sepolia `AxelarExecutable` smart contract.
-    * Set the payload hash's `MemoData` field to `keccak256(abi.encode(gmpPayload))`. You can use the [`eth-abi`](https://eth-abi.readthedocs.io/en/stable/encoding.html) and [`eth-utils`](https://eth-utils.readthedocs.io/en/stable/utilities.html#keccak-bytes-int-bool-text-str-hexstr-str-bytes) python libraries to compute this hash, e.g.:
+    * Set the payload hash's `MemoData` field to `keccak256(abi.encode(gmpPayload))`. You can use the [`eth-abi`](https://eth-abi.readthedocs.io/en/stable/encoding.html) and [`eth-utils`](https://eth-utils.readthedocs.io/en/stable/utilities.html#keccak-bytes-int-bool-text-str-hexstr-str-bytes) python libraries to compute this hash, as such:
     ```py
     from eth_abi import encode
     from eth_utils import keccak
     keccak(encode(['string'], ['hello, world!'])).hex()
     ```
-3. Within a few minutes, the relayer will have submitted validator signatures of the XRPL Testnet deposit transaction to the Ethereum Sepolia `AxelarGateway` contract, which records the approval of the payload hash and emits a `ContractCallApproved` event. You can verify that this event was called using an [Ethereum Sepolia explorer](https://sepolia.etherscan.io/address/0x72F28C8d7b16088d49F27B5D1D51DB66BA966684).
+3. Within a few minutes, the relayer should submit validator signatures of the XRPL Testnet deposit transaction to the Ethereum Sepolia `AxelarGateway` contract, which records the approval of the payload hash and emits a `ContractCallApproved` event. You can verify that this event was called using an [explorer](https://sepolia.etherscan.io/address/0x72F28C8d7b16088d49F27B5D1D51DB66BA966684).
 4. Call the `execute` function on your `AxelarExecutable` Ethereum Sepolia smart contract:
 ```sh
 AXELAR_EXECUTABLE= # your `AxelarExecutable` contract
@@ -207,11 +205,13 @@ cast send $AXELAR_EXECUTABLE 'function execute(bytes32 commandId, string calldat
 We have created and [deployed to Ethereum Sepolia](https://sepolia.etherscan.io/address/0x189C2572063f25FEf5Cdd3516DDDd9fA6e9CB187) an example `AxelarExecutable` contract called [`ExecutableSample`](https://github.com/commonprefix/axelar-xrpl-solidity/blob/main/src/executable/examples/ExecutableSample.sol).
 
 Let's call the `ExecutableSample` contract from XRPL, to update its `message` state variable:
-1. Let's aim to set the `ExecutableSample.message` state variable to `'Just transferred XRP to Ethereum!'`.
+1. We'll aim to update the `ExecutableSample.message` state variable to `'Just transferred XRP to Ethereum!'` from XRPL Testnet.
 2. Initiate the GMP call by making a `Payment` to the XRPL multisig:
 ```javascript
+import * as xrpl from "xrpl";
+
 const XRPL_RPC_URL = "wss://s.altnet.rippletest.net:51233";
-async function gmp(user: xrpl.Wallet) {
+async function gmp() {
     const client = new xrpl.Client(XRPL_RPC_URL);
     await client.connect();
 
@@ -219,7 +219,7 @@ async function gmp(user: xrpl.Wallet) {
     const user = xrpl.Wallet.generate();
     await client.fundWallet(user);
 
-    const gmpTx: xrpl.Transaction = {
+    const paymentTx: xrpl.Transaction = {
         TransactionType: "Payment",
         Account: user.address,
         Amount: xrpl.xrpToDrops(1),
@@ -231,32 +231,33 @@ async function gmp(user: xrpl.Wallet) {
             {
                 Memo: {
                     MemoData: "189C2572063f25FEf5Cdd3516DDDd9fA6e9CB187", // the `ExecutableSample` contract
-                    MemoType: "64657374696E6174696F6E5F61646472657373", // hex("destination_address")
+                    MemoType: Buffer.from("destination_address").toString('hex').toUpperCase(),
                 },
             },
             {
                 Memo: {
-                    MemoData: "657468657265756D", // hex("ethereum")
-                    MemoType: "64657374696E6174696F6E5F636861696E", // hex("destination_address")
+                    MemoData: Buffer.from("ethereum").toString('hex').toUpperCase(),
+                    MemoType: Buffer.from("destination_chain").toString('hex').toUpperCase(),
                 },
             },
             {
                 Memo: {
                     MemoData: "df031b281246235d0e8c8254cd731ed95d2caf4db4da67f41a71567664a1fae8", // keccak256(abi.encode(gmpPayload))
-                    MemoType: "7061796C6F61645F68617368", // hex("payload_hash")
+                    MemoType: Buffer.from("payload_hash").toString('hex').toUpperCase(),
                 },
             },
         ],
     };
 
     const signed = user.sign(await client.autofill(paymentTx));
+    console.log(signed);
     await client.submitAndWait(signed.tx_blob);
     await client.disconnect();
 }
 
 gmp();
 ```
-3. Wait for the relayer to call `AxelarGateway.execute()`. Verify that the `ContractCallApproved` event was called using an [Ethereum Sepolia explorer](https://sepolia.etherscan.io/address/0x72F28C8d7b16088d49F27B5D1D51DB66BA966684).
+3. Wait for the relayer to call `AxelarGateway.execute()`. Verify that the `ContractCallApproved` event was called using an [explorer](https://sepolia.etherscan.io/address/0x72F28C8d7b16088d49F27B5D1D51DB66BA966684).
 4. Call the `ExecutableSample.execute()`:
 ```sh
 AXELAR_EXECUTABLE=0x189C2572063f25FEf5Cdd3516DDDd9fA6e9CB187
