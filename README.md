@@ -33,8 +33,8 @@
 - You can use some RPC provider like Alchemy or Infura to broadcast transcations to Ethereum Sepolia. These instructions assume that you have set the `SEPOLIA_RPC_URL` environment variable to a working Sepolia RPC URL.
 - Generate a new wallet for each side. For Ethereum Sepolia, you can use the `cast wallet new` command. These instructions assume that you have set the `PRIVATE_KEY` environment variable to a funded Sepolia wallet private key.
 - Fund your accounts using a faucet, such as these:
-    * Ethereum Sepolia `ETH`: [alchemy.com/faucets/ethereum-sepolia](https://www.alchemy.com/faucets/ethereum-sepolia)
-    * XRPL Testnet `XRP`: [faucet.tequ.dev](https://faucet.tequ.dev/)
+    * Ethereum Sepolia `ETH` faucet: [alchemy.com/faucets/ethereum-sepolia](https://www.alchemy.com/faucets/ethereum-sepolia)
+    * XRPL Testnet `XRP` faucet: [faucet.tequ.dev](https://faucet.tequ.dev/)
 - To bridge to XRPL Testnet, you can use an XRPL library of your preference, such as `xrpl.js` or `xrpl-py`.
 - To perform general message passing (GMP) from XRPL, the Ethereum Sepolia smart contract (that you wish to call) needs to implement the [`AxelarExecutable`](https://github.com/commonprefix/axelar-xrpl-solidity/blob/main/src/executable/AxelarExecutable.sol) contract. Please keep in mind that this contract is not the standard `AxelarExecutable` contract that you will find on other Axelar resources.
 
