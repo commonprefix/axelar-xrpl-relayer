@@ -575,6 +575,8 @@ func processMessage(logger *slog.Logger, sourceChain string, axelarClient Axelar
 				return err
 			}
 
+			time.Sleep(5 * time.Second)
+
 			logger.Info("broadcasted tx", "tx_hash", txHash)
 		}
 
@@ -582,6 +584,7 @@ func processMessage(logger *slog.Logger, sourceChain string, axelarClient Axelar
 		txHash, err := ValidateTokenTransfer(ethereumClient, os.Getenv("ETH_AXELAR_GATEWAY"), privateKey, proofId, message, coin)
 		if err != nil {
 			logger.Info("failed to validate token transfer (already executed or not a token transfer)", "err", err)
+			return err
 		} else {
 			logger.Info("validated token transfer", "tx_hash", txHash, "err", err)
 		}
