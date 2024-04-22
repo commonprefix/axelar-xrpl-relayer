@@ -264,6 +264,7 @@ func (s *Sentinel) ProcessEvents(ctx context.Context) error {
 				}
 			}
 
+			// TODO: can this stream be used for multiple messages??
 			stream, err := s.axelarClient.Verify(ctx)
 			if err == nil && stream != nil {
 				defer stream.CloseSend()
