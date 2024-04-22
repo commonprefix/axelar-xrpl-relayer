@@ -98,7 +98,7 @@ func forever(ctx context.Context, task Task) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return nil // Return gracefully if the context is cancelled
+			return nil
 		default:
 			if err := task(ctx); err != nil {
 				return err
@@ -109,9 +109,9 @@ func forever(ctx context.Context, task Task) error {
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel() // Ensure we clean up resources by cancelling the context
+	defer cancel()
 
-	errChan := make(chan error, 4) // Buffer the channel for all goroutines
+	errChan := make(chan error, 4)
 
 	grpcConn, err := grpc.Dial("your_server_address:port", grpc.WithInsecure())
 	if err != nil {
@@ -177,34 +177,42 @@ func main() {
 
 	includerChannel, err := rmqConn.Channel()
 	if err != nil {
-		fmt.Println("Failed to open a rabbitmq channel")
+		fmt.Println("Failed to open a rabbitmq channel", err)
 		return
 	}
 	defer includerChannel.Close()
-	includer := Includer{messageQueue: includerChannel, xrplClient: &xrplClient}
+
+	includerMaxRetries, err := strconv.ParseUint(os.Getenv("INCLUDER_MAX_RETRIES"))
+	if err != nil {
+		fmt.Println("Invalid INCLUDER_MAX_RETRIES", err)
+		return
+	}
+	includer := Includer{messageQueue: includerChannel, xrplClient: &xrplClient, maxRetries: uint32(includerMaxRetries)}
 
 	broadcasterChannel, err := rmqConn.Channel()
 	if err != nil {
-		fmt.Println("Failed to open a rabbitmq channel")
+		fmt.Println("Failed to open a rabbitmq channel", err)
 		return
 	}
 	defer broadcasterChannel.Close()
-	broadcaster := Broadcaster{axelarClient: axelarClient, messageQueue: broadcasterChannel}
+	broadcasterMaxRetries, err := strconv.ParseUint(os.Getenv("BROADCASTER_MAX_RETRIES"))
+	if err != nil {
+		fmt.Println("Invalid BROADCASTER_MAX_RETRIES", err)
+		return
+	}
+	broadcaster := Broadcaster{axelarClient: axelarClient, messageQueue: broadcasterChannel, maxRetries: uint32(broadcasterMaxRetries)}
 
-	// List of tasks
 	tasks := []Task{sentinel.ProcessEvents, approver.ProcessEvents, includer.SubmitProofs, broadcaster.ConsumeQueueAndBroadcast}
 
-	// Start each task in its own goroutine
 	for _, task := range tasks {
 		go func(t Task) {
 			errChan <- forever(ctx, t)
 		}(task)
 	}
 
-	// Wait for the first error from any task
 	if err := <-errChan; err != nil {
 		fmt.Println("Received an error:", err)
-		cancel() // Stop all tasks
+		cancel()
 	}
 }
 
@@ -446,6 +454,7 @@ func (a *Approver) PersistLastProcessedHeight() error {
 type Broadcaster struct {
 	axelarClient pb.AmplifierClient
 	messageQueue *amqp.Channel
+	maxRetries   uint32
 }
 
 func (b *Broadcaster) ConsumeQueueAndBroadcast(ctx context.Context) error {
@@ -464,7 +473,7 @@ func (b *Broadcaster) ConsumeQueueAndBroadcast(ctx context.Context) error {
 			delivery.Ack(false)
 		} else {
 			log.Println("Failed to broadcast: ", err, res)
-			delivery.Nack(false, true) // TODO: requeue how many times?
+			nackWithLimit(b.messageQueue, delivery, b.maxRetries)
 		}
 	}
 	return nil
@@ -473,6 +482,7 @@ func (b *Broadcaster) ConsumeQueueAndBroadcast(ctx context.Context) error {
 type Includer struct {
 	messageQueue *amqp.Channel
 	xrplClient   *XRPLClient
+	maxRetries   uint32
 }
 
 func (i *Includer) SubmitProofs(ctx context.Context) error {
@@ -487,7 +497,7 @@ func (i *Includer) SubmitProofs(ctx context.Context) error {
 			delivery.Ack(false)
 		} else {
 			log.Println("Failed to submit transaction", proof, err, res.EngineResult, res.EngineResultCode, res.EngineResultMessage)
-			delivery.Nack(false, true) // TODO: requeue how many times?
+			nackWithLimit(i.messageQueue, delivery, i.maxRetries) // TODO: requeue how many times?
 		}
 	}
 	return nil
@@ -673,4 +683,30 @@ func (tx *XRPLTransaction) GetMemo(byType string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("memo type %s not found", byType)
+}
+
+func nackWithLimit(channel *amqp.Channel, msg amqp.Delivery, maxRetries uint32) {
+	retryCountHeader := msg.Headers["x-retry-count"]
+	retryCount, ok := retryCountHeader.(uint32)
+	if !ok {
+		retryCount = 0
+	}
+
+	if retryCount < maxRetries {
+		retryCount++
+		msg.Headers["x-retry-count"] = retryCount
+
+		err := msg.Nack(false, true)
+		if err != nil {
+			log.Printf("Failed to nack and requeue message: %s", err)
+		} else {
+			log.Printf("Message requeued, attempt %d", retryCount)
+		}
+	} else {
+		log.Printf("Max retries exceeded for message, sending to DLX or handling failure")
+		err := msg.Nack(false, false)
+		if err != nil {
+			log.Printf("Failed to nack message: %s", err)
+		}
+	}
 }
