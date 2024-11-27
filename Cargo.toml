@@ -1,0 +1,17 @@
+[package]
+name = "axelar-xrpl-relayer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.93"
+async-stream = "0.3.6"
+futures = "0.3.31"
+lapin = "2.5.0"
+serde_json = "1.0.133"
+tokio = "1.41.1"
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
+xrpl_api = { git = "https://github.com/commonprefix/xrpl-sdk-rust", branch = "main", package = "xrpl_api" }
+xrpl_ws_client = { git = "https://github.com/commonprefix/xrpl-sdk-rust", branch = "main", package = "xrpl_ws_client" }
+xrpl_types = { git = "https://github.com/commonprefix/xrpl-sdk-rust", branch = "main", package = "xrpl_types" }
