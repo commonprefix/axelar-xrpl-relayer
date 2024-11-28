@@ -6,6 +6,7 @@ use lapin::{
 };
 use tracing::info;
 
+#[derive(Clone)]
 pub struct Queue {
     queue: lapin::Queue,
     channel: lapin::Channel,
@@ -13,7 +14,7 @@ pub struct Queue {
 }
 
 impl Queue {
-    pub async fn new(url: &str) -> Self {
+    pub async fn new(url: &str, name: &str) -> Self {
         let connection = Connection::connect(url, ConnectionProperties::default())
             .await
             .unwrap();
@@ -24,14 +25,9 @@ impl Queue {
         info!("Created channel");
 
         // Create Q
-        let queue_name = "testqueue";
         // todo: test durable
         let q = channel
-            .queue_declare(
-                queue_name,
-                QueueDeclareOptions::default(),
-                FieldTable::default(),
-            )
+            .queue_declare(name, QueueDeclareOptions::default(), FieldTable::default())
             .await
             .unwrap();
         info!("Declared RMQ queue: {:?}", q);
