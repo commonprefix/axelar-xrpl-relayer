@@ -105,7 +105,7 @@ impl XRPLIncluder {
     pub async fn new<'a>(
     ) -> Includer<XRPLBroadcaster, Arc<xrpl_http_client::Client>, XRPLRefundManager> {
         let addr = "amqp://127.0.0.1:5672";
-        let q = Queue::new(addr).await;
+        let q = Queue::new(addr, "xrpl_amp_tasks").await;
 
         let client = Arc::new(XRPLClient::new_http_client(RPC_URL).unwrap());
 
