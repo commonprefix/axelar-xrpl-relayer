@@ -13,7 +13,6 @@ pub struct GmpApi {
 }
 
 const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(3);
-const RPC_URL: &str = "https://s.devnet.rippletest.net:51234";
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Message {
