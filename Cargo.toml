@@ -23,3 +23,6 @@ thiserror = "2.0.3"
 error-stack = "0.5.0"
 serde = "1.0.215"
 libsecp256k1 = "0.7.1"
+
+[dev-dependencies]
+mockito = "1.6.1"
