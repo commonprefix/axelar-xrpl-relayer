@@ -1,3 +1,5 @@
+use async_stream::stream;
+use futures::Stream;
 use serde_json::Value;
 use std::{collections::HashMap, time::Duration};
 use tracing::{info, warn};
@@ -16,6 +18,7 @@ pub struct GmpApi {
 }
 
 const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(3);
+const TASKS_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 impl GmpApi {
     pub fn new(rpc_url: &str) -> Result<Self, GmpApiError> {
@@ -31,7 +34,7 @@ impl GmpApi {
         })
     }
 
-    pub async fn get_tasks(&self) -> Result<Vec<Task>, GmpApiError> {
+    async fn get_tasks_action(&self) -> Result<Vec<Task>, GmpApiError> {
         let res = self
             .client
             .get(&format!("{}/tasks", self.rpc_url))
@@ -61,6 +64,25 @@ impl GmpApi {
                 }
             })
             .collect::<Vec<_>>())
+    }
+
+    pub fn get_tasks(&self) -> Box<dyn Stream<Item = Vec<Task>> + '_> {
+        let s = stream! {
+            loop {
+                let tasks = self.get_tasks_action().await;
+                match tasks {
+                    Ok(tasks) => {
+                        yield tasks;
+                    }
+                    Err(e) => {
+                        warn!("Failed to get tasks: {:?}", e);
+                    }
+                }
+                tokio::time::sleep(TASKS_POLL_INTERVAL).await;
+            }
+        };
+
+        Box::new(s)
     }
 
     pub async fn post_events(
@@ -160,7 +182,7 @@ mod tests {
 
         let api = GmpApi::new(&url).unwrap();
 
-        let result = api.get_tasks().await;
+        let result = api.get_tasks_action().await;
 
         assert!(result.is_ok());
         let tasks = result.unwrap();
