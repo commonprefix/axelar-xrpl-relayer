@@ -21,7 +21,7 @@ async fn main() {
 
     // Create RMQ connection
     let addr = "amqp://127.0.0.1:5672";
-    let q = Queue::new(addr).await;
+    let q = Queue::new(addr, "name_here").await;
 
     let account = AccountId::from_address("rP9iHnCmJcVPtzCwYJjU1fryC2pEcVqDHv").unwrap();
     let mut subscriber = Subscriber::new_xrpl("wss://s.devnet.rippletest.net:51233").await;
