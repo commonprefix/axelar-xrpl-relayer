@@ -1,11 +1,14 @@
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, time::Duration};
 use tracing::{info, warn};
 
 use reqwest::Client;
 
-use crate::{error::GmpApiError, utils::parse_task};
+use crate::{
+    error::GmpApiError,
+    gmp_types::{Event, PostEventResponse, PostEventResult, Task},
+    utils::parse_task,
+};
 
 pub struct GmpApi {
     rpc_url: String,
@@ -13,160 +16,6 @@ pub struct GmpApi {
 }
 
 const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(3);
-
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct Message {
-    #[serde(rename = "messageID")]
-    message_id: String,
-    #[serde(rename = "sourceChain")]
-    source_chain: String,
-    #[serde(rename = "sourceAddress")]
-    source_address: String,
-    #[serde(rename = "destinationAddress")]
-    destination_address: String,
-    #[serde(rename = "payloadHash")]
-    payload_hash: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct Amount {
-    #[serde(rename = "tokenID")]
-    token_id: Option<String>,
-    amount: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct CommonTaskFields {
-    pub id: String,
-    pub timestamp: String,
-    pub r#type: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct ExecuteTaskFields {
-    message: Message,
-    payload: String,
-    #[serde(rename = "availableGasBalance")]
-    available_gas_balance: Amount,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct ExecuteTask {
-    #[serde(flatten)]
-    common: CommonTaskFields,
-    task: ExecuteTaskFields,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct RefundTaskFields {
-    message: Message,
-    #[serde(rename = "refundRecipientAddress")]
-    refund_recipient_address: String,
-    #[serde(rename = "remainingGasBalance")]
-    remaining_gas_balance: Amount,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct RefundTask {
-    #[serde(flatten)]
-    common: CommonTaskFields,
-    task: RefundTaskFields,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub enum Task {
-    Execute(ExecuteTask),
-    Refund(RefundTask),
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct CommonEventFields {
-    r#type: String,
-    #[serde(rename = "eventID")]
-    event_id: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Metadata {
-    #[serde(rename = "txID")]
-    tx_id: String,
-    #[serde(rename = "fromAddress")]
-    from_address: String,
-    finalized: bool,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct CallEvent {
-    #[serde(flatten)]
-    common: CommonEventFields,
-    message: Message,
-    #[serde(rename = "destinationChain")]
-    destination_chain: String,
-    payload: String,
-    meta: Option<Metadata>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct GasRefundedEvent {
-    #[serde(flatten)]
-    common: CommonEventFields,
-    #[serde(rename = "recipientAddress")]
-    recipient_address: String,
-    #[serde(rename = "refundedAmount")]
-    refunded_amount: Amount,
-    cost: Amount,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct GasCreditEvent {
-    #[serde(flatten)]
-    common: CommonEventFields,
-    #[serde(rename = "messageID")]
-    message_id: String,
-    #[serde(rename = "refundAddress")]
-    refund_address: String,
-    payment: Amount,
-    meta: Option<Metadata>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct CannotExecuteMessageEvent {
-    #[serde(flatten)]
-    common: CommonEventFields,
-    #[serde(rename = "eventID")]
-    event_id: String,
-    #[serde(rename = "taskItemID")]
-    task_item_id: String,
-    reason: String,
-    details: Amount,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(untagged)]
-pub enum Event {
-    Call(CallEvent),
-    GasRefunded(GasRefundedEvent),
-    GasCredit(GasCreditEvent),
-    CannotExecuteMessage(CannotExecuteMessageEvent),
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct PostEventResult {
-    status: String,
-    index: usize,
-    error: Option<String>,
-    retriable: Option<bool>,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct PostEventResponse {
-    results: Vec<PostEventResult>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Default)]
-struct EventMessage {
-    events: Vec<Event>,
-}
 
 impl GmpApi {
     pub fn new(rpc_url: &str) -> Result<Self, GmpApiError> {
@@ -245,6 +94,11 @@ impl GmpApi {
 
 #[cfg(test)]
 mod tests {
+    use crate::gmp_types::{
+        Amount, CallEvent, CommonEventFields, CommonTaskFields, ExecuteTask, ExecuteTaskFields,
+        Message, RefundTask, RefundTaskFields,
+    };
+
     use super::*;
     use tokio;
 

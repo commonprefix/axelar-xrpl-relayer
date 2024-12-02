@@ -3,7 +3,7 @@ use tracing::{info, warn};
 
 use crate::{
     error::GmpApiError,
-    gmp_api::{CommonTaskFields, ExecuteTask, RefundTask, Task},
+    gmp_types::{CommonTaskFields, ExecuteTask, RefundTask, Task},
 };
 
 pub fn parse_task(task_json: &Value) -> Result<Task, GmpApiError> {
