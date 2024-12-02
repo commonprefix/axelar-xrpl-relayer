@@ -33,3 +33,15 @@ pub enum ClientError {
     #[error("Connection failed: {0}")]
     ConnectionFailed(String),
 }
+
+#[derive(Error, Debug)]
+pub enum GmpApiError {
+    #[error("Connection failed: {0}")]
+    ConnectionFailed(String),
+    #[error("GMP API Request failed: {0}")]
+    RequestFailed(String),
+    #[error("GMP API Returned Error: {0}")]
+    ErrorResponse(String),
+    #[error("Failed to parse response from GMP API: {0}")]
+    InvalidResponse(String),
+}
