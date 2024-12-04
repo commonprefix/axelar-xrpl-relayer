@@ -19,11 +19,9 @@ impl Queue {
             .unwrap();
         info!("Connected to RabbitMQ at {}", url);
 
-        // Create channel
         let channel = connection.create_channel().await.unwrap();
         info!("Created channel");
 
-        // Create Q
         // todo: test durable
         let q = channel
             .queue_declare(name, QueueDeclareOptions::default(), FieldTable::default())

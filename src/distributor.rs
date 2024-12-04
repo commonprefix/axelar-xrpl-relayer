@@ -5,7 +5,6 @@ use tracing::{info, warn};
 
 use crate::{gmp_api::GmpApi, queue::Queue};
 
-// add tasks from the amplifier to RMQ
 pub struct Distributor {}
 
 impl Distributor {
@@ -23,7 +22,6 @@ impl Distributor {
                 warn!("Retrying in 2 seconds");
             }
         }
-        // sleep 2 seconds
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
     }
 

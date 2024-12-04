@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 use tracing::{error, info};
 
-// parse RMQ events (amplifier tasks) and post txs XRPL chain
 use crate::{
     error::{BroadcasterError, IncluderError, RefundManagerError},
     queue::Queue,
