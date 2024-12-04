@@ -1,6 +1,7 @@
 use libsecp256k1::{PublicKey, SecretKey};
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::debug;
 use xrpl_api::SubmitRequest;
 use xrpl_binary_codec::serialize;
 use xrpl_binary_codec::sign::sign_transaction;
@@ -39,6 +40,7 @@ pub struct XRPLRefundManager {
 
 impl<'a> XRPLRefundManager {
     fn new(client: Arc<xrpl_http_client::Client>, address: String, secret: String) -> Self {
+        debug!("Creating refund manager with address: {}", address);
         Self {
             client,
             account_id: AccountId::from_address(&address).unwrap(),

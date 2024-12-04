@@ -1,3 +1,4 @@
+use dotenv::dotenv;
 use std::{env, sync::Arc};
 
 use axelar_xrpl_relayer::{
@@ -11,12 +12,13 @@ use xrpl_types::AccountId;
 
 #[tokio::main]
 async fn main() {
-    let refund_manager_address = env::var("REFUND_MANAGER_ADDRESS")
-        .expect("REFUND_MANAGER_ADDRESS environment variable")
-        .to_string();
-    let includer_secret = env::var("INCLUDER_SECRET")
-        .expect("INCLUDER_SECRET environment variable")
-        .to_string();
+    dotenv().ok();
+    let refund_manager_address =
+        env::var("REFUND_MANAGER_ADDRESS").expect("REFUND_MANAGER_ADDRESS environment variable");
+    let includer_secret =
+        env::var("INCLUDER_SECRET").expect("INCLUDER_SECRET environment variable");
+    let queue_address = env::var("QUEUE_ADDRESS").expect("QUEUE_ADDRESS environment variable");
+    let gmp_api_url = env::var("GMP_API").expect("GMP_API environment variable");
 
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::DEBUG)
@@ -24,11 +26,10 @@ async fn main() {
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
-    let addr = "amqp://127.0.0.1:5672";
-    let tasks_queue = Arc::new(Queue::new(addr, "tasks").await);
-    let events_queue = Arc::new(Queue::new(addr, "events").await);
-    let gmp_api = Arc::new(gmp_api::GmpApi::new("http://localhost:8080").unwrap());
-    let xrpl_includer = XRPLIncluder::new(refund_manager_address, includer_secret).await;
+    let tasks_queue = Arc::new(Queue::new(&queue_address, "tasks").await);
+    let events_queue = Arc::new(Queue::new(&queue_address, "events").await);
+    let gmp_api = Arc::new(gmp_api::GmpApi::new(&gmp_api_url).unwrap());
+    let xrpl_includer = XRPLIncluder::new(includer_secret, refund_manager_address).await;
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
     let account = AccountId::from_address("rP9iHnCmJcVPtzCwYJjU1fryC2pEcVqDHv").unwrap();
