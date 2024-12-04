@@ -1,7 +1,7 @@
 use async_stream::stream;
 use futures::Stream;
 use serde_json::Value;
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, pin::Pin, time::Duration};
 use tracing::{info, warn};
 
 use reqwest::Client;
@@ -34,7 +34,7 @@ impl GmpApi {
         })
     }
 
-    async fn get_tasks_action(&self) -> Result<Vec<Task>, GmpApiError> {
+    pub async fn get_tasks_action(&self) -> Result<Vec<Task>, GmpApiError> {
         let res = self
             .client
             .get(&format!("{}/tasks", self.rpc_url))
@@ -66,7 +66,7 @@ impl GmpApi {
             .collect::<Vec<_>>())
     }
 
-    pub fn get_tasks(&self) -> Box<dyn Stream<Item = Vec<Task>> + '_> {
+    pub fn get_tasks(&self) -> Pin<Box<dyn Stream<Item = Vec<Task>> + '_>> {
         let s = stream! {
             loop {
                 let tasks = self.get_tasks_action().await;
@@ -82,7 +82,7 @@ impl GmpApi {
             }
         };
 
-        Box::new(s)
+        Box::pin(s)
     }
 
     pub async fn post_events(
