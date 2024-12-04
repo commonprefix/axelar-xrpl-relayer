@@ -1,5 +1,4 @@
 use libsecp256k1::{PublicKey, SecretKey};
-use std::env;
 use std::sync::Arc;
 use std::time::Duration;
 use xrpl_api::SubmitRequest;
@@ -102,19 +101,14 @@ pub struct XRPLIncluder {}
 
 impl XRPLIncluder {
     pub async fn new<'a>(
+        secret: String,
+        refund_manager_address: String,
     ) -> Includer<XRPLBroadcaster, Arc<xrpl_http_client::Client>, XRPLRefundManager> {
         let client = Arc::new(XRPLClient::new_http_client(RPC_URL).unwrap());
 
         let broadcaster = XRPLBroadcaster::new(Arc::clone(&client)).unwrap();
-        let refund_manager = XRPLRefundManager::new(
-            Arc::clone(&client),
-            env::var("ADDRESS")
-                .expect("ADDRESS environment variable")
-                .to_string(),
-            env::var("SECRET")
-                .expect("SECRET environment variable")
-                .to_string(),
-        );
+        let refund_manager =
+            XRPLRefundManager::new(Arc::clone(&client), refund_manager_address, secret);
 
         let includer = Includer {
             chain_client: client,

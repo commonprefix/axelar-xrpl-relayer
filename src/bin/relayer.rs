@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{env, sync::Arc};
 
 use axelar_xrpl_relayer::{
     distributor::Distributor, gmp_api, ingestor::Ingestor, queue::Queue, subscriber::Subscriber,
@@ -11,6 +11,13 @@ use xrpl_types::AccountId;
 
 #[tokio::main]
 async fn main() {
+    let refund_manager_address = env::var("REFUND_MANAGER_ADDRESS")
+        .expect("REFUND_MANAGER_ADDRESS environment variable")
+        .to_string();
+    let includer_secret = env::var("INCLUDER_SECRET")
+        .expect("INCLUDER_SECRET environment variable")
+        .to_string();
+
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::DEBUG)
         .finish();
@@ -21,7 +28,7 @@ async fn main() {
     let tasks_queue = Arc::new(Queue::new(addr, "tasks").await);
     let events_queue = Arc::new(Queue::new(addr, "events").await);
     let gmp_api = Arc::new(gmp_api::GmpApi::new("http://localhost:8080").unwrap());
-    let xrpl_includer = XRPLIncluder::new().await;
+    let xrpl_includer = XRPLIncluder::new(refund_manager_address, includer_secret).await;
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
     let account = AccountId::from_address("rP9iHnCmJcVPtzCwYJjU1fryC2pEcVqDHv").unwrap();
