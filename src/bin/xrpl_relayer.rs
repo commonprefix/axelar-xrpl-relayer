@@ -1,9 +1,9 @@
 use dotenv::dotenv;
-use std::{env, sync::Arc};
+use std::sync::Arc;
 
 use axelar_xrpl_relayer::{
-    distributor::Distributor, gmp_api, ingestor::Ingestor, queue::Queue, subscriber::Subscriber,
-    xrpl_includer::XRPLIncluder,
+    config::Config, distributor::Distributor, gmp_api, ingestor::Ingestor, queue::Queue,
+    subscriber::Subscriber, xrpl_includer::XRPLIncluder,
 };
 use tokio::sync::watch;
 use tracing::{self, Level};
@@ -13,15 +13,7 @@ use xrpl_types::AccountId;
 #[tokio::main]
 async fn main() {
     dotenv().ok();
-    let refund_manager_address =
-        env::var("REFUND_MANAGER_ADDRESS").expect("REFUND_MANAGER_ADDRESS environment variable");
-    let includer_secret =
-        env::var("INCLUDER_SECRET").expect("INCLUDER_SECRET environment variable");
-    let queue_address = env::var("QUEUE_ADDRESS").expect("QUEUE_ADDRESS environment variable");
-    let gmp_api_url = env::var("GMP_API").expect("GMP_API environment variable");
-    let xrpl_rpc = env::var("XRPL_RPC").expect("XRPL_RPC environment variable");
-    let multisig_address =
-        env::var("MULTISIG_ADDRESS").expect("MULTISIG_ADDRESS environment variable");
+    let config = Config::from_env().map_err(|e| anyhow::anyhow!(e)).unwrap();
 
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::DEBUG)
@@ -29,15 +21,16 @@ async fn main() {
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
-    let tasks_queue = Arc::new(Queue::new(&queue_address, "tasks").await);
-    let events_queue = Arc::new(Queue::new(&queue_address, "events").await);
-    let gmp_api = Arc::new(gmp_api::GmpApi::new(&gmp_api_url).unwrap());
-    let xrpl_includer = XRPLIncluder::new(includer_secret, refund_manager_address).await;
+    let tasks_queue = Arc::new(Queue::new(&config.queue_address, "tasks").await);
+    let events_queue = Arc::new(Queue::new(&config.queue_address, "events").await);
+    let gmp_api = Arc::new(gmp_api::GmpApi::new(&config.gmp_api_url).unwrap());
+    let xrpl_includer =
+        XRPLIncluder::new(config.includer_secret, config.refund_manager_address).await;
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    let account = AccountId::from_address(&multisig_address).unwrap();
+    let account = AccountId::from_address(&config.multisig_address).unwrap();
 
-    let mut subscriber = Subscriber::new_xrpl(&xrpl_rpc).await;
+    let mut subscriber = Subscriber::new_xrpl(&config.xrpl_rpc).await;
     let events_queue_ref = events_queue.clone();
     let subscriber_handle = tokio::spawn({
         let shutdown_rx = shutdown_rx.clone();
@@ -61,7 +54,13 @@ async fn main() {
     let ingestor_handle = tokio::spawn({
         let shutdown_rx = shutdown_rx.clone();
         async move {
-            Ingestor::run(gmp_api_ref, events_queue_ref, multisig_address, shutdown_rx).await;
+            Ingestor::run(
+                gmp_api_ref,
+                events_queue_ref,
+                config.multisig_address,
+                shutdown_rx,
+            )
+            .await;
         }
     });
 
