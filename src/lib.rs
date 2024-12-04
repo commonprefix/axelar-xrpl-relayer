@@ -8,3 +8,4 @@ pub mod queue;
 pub mod subscriber;
 pub mod utils;
 pub mod xrpl_includer;
+pub mod xrpl_subscriber;
