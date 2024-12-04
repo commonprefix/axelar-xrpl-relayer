@@ -7,7 +7,7 @@ use lapin::{
     Consumer,
 };
 use tokio::sync::watch;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use xrpl_api::Transaction;
 
 use crate::{
@@ -22,14 +22,15 @@ use crate::{
 pub struct Ingestor {}
 
 impl Ingestor {
-    async fn work(gmp_api: Arc<GmpApi>, consumer: &mut Consumer) -> () {
+    async fn work(gmp_api: Arc<GmpApi>, consumer: &mut Consumer, multisig_address: String) -> () {
         let next_item = consumer.next().await;
         if let Some(delivery) = next_item {
             match delivery {
                 Ok(delivery) => {
                     let data = delivery.data.clone();
+                    debug!("Received data string: {:?}", str::from_utf8(&data).unwrap());
                     let tx = serde_json::from_slice::<ChainTransaction>(&data).unwrap();
-                    let consume_res = Ingestor::consume(gmp_api, tx).await;
+                    let consume_res = Ingestor::consume(gmp_api, tx, multisig_address).await;
                     match consume_res {
                         Ok(_) => {
                             delivery.ack(BasicAckOptions::default()).await.expect("ack");
@@ -37,7 +38,10 @@ impl Ingestor {
                         Err(e) => {
                             warn!("Error consuming tx: {:?}", e);
                             delivery
-                                .nack(BasicNackOptions::default())
+                                .nack(BasicNackOptions {
+                                    multiple: false,
+                                    requeue: true,
+                                })
                                 .await
                                 .expect("nack");
                         }
@@ -48,18 +52,20 @@ impl Ingestor {
                 }
             }
         }
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await
     }
 
     pub async fn run(
         gmp_api: Arc<GmpApi>,
         queue: Arc<Queue>,
+        multisig_address: String,
         mut shutdown_rx: watch::Receiver<bool>,
     ) -> () {
         let mut consumer = queue.consumer().await.unwrap();
 
         loop {
             tokio::select! {
-                _ = Ingestor::work(gmp_api.clone(), &mut consumer) => {}
+                _ = Ingestor::work(gmp_api.clone(), &mut consumer, multisig_address.clone()) => {}
                 _ = shutdown_rx.changed() => {
                     info!("Shutting down ingestor");
                     break;
@@ -68,12 +74,19 @@ impl Ingestor {
         }
     }
 
-    pub async fn consume(gmp_api: Arc<GmpApi>, tx: ChainTransaction) -> Result<(), IngestorError> {
+    pub async fn consume(
+        gmp_api: Arc<GmpApi>,
+        tx: ChainTransaction,
+        multisig_address: String,
+    ) -> Result<(), IngestorError> {
         match tx {
-            ChainTransaction::Xrpl(tx_event) => {
-                let tx = tx_event.transaction;
+            ChainTransaction::Xrpl(tx) => {
                 match tx {
                     Transaction::Payment(payment) => {
+                        if payment.destination != multisig_address {
+                            return Ok(());
+                        }
+
                         let event = Event::Call(CallEvent {
                             common: CommonEventFields {
                                 r#type: "CALL".to_owned(),

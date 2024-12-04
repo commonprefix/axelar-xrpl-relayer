@@ -35,7 +35,7 @@ impl Queue {
     }
 
     pub async fn publish(&self, msg: &[u8]) {
-        let confirm = self
+        let _ = self
             .channel
             .basic_publish(
                 "",
