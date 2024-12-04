@@ -1,14 +1,20 @@
-use std::{future::Future, pin::Pin};
+use std::{future::Future, pin::Pin, sync::Arc};
 
 use anyhow::anyhow;
 use async_stream::stream;
 use futures::{Stream, StreamExt};
-use tracing::{debug, error, warn};
-use xrpl_api::{SubscribeRequest, Transaction, TransactionEvent, UnsubscribeRequest};
+use serde::{Deserialize, Serialize};
+use tokio::sync::watch;
+use tracing::{debug, error, info, warn};
+use xrpl_api::{
+    AccountTransaction, SubscribeRequest, Transaction, TransactionEvent, UnsubscribeRequest,
+};
 use xrpl_types::AccountId;
-use xrpl_ws_client::client::{Client, TypedMessage};
+use xrpl_ws_client::client::TypedMessage;
 
-pub trait TransactionSubscriber {
+use crate::queue::Queue;
+
+pub trait TransactionListener {
     type Transaction;
 
     fn subscribe(&mut self, account: AccountId) -> impl Future<Output = Result<(), anyhow::Error>>;
@@ -23,11 +29,20 @@ pub trait TransactionSubscriber {
     ) -> impl Future<Output = Pin<Box<dyn Stream<Item = Self::Transaction> + '_>>>;
 }
 
+pub trait TransactionPoller {
+    type Transaction;
+
+    fn poll(
+        &self,
+        account: AccountId,
+    ) -> impl Future<Output = Result<Vec<Self::Transaction>, anyhow::Error>>;
+}
+
 pub enum Subscriber {
     Xrpl(XrplSubscriber),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum ChainTransaction {
     Xrpl(TransactionEvent),
 }
@@ -38,39 +53,59 @@ impl Subscriber {
         Subscriber::Xrpl(client)
     }
 
-    pub async fn subscribe(&mut self, account: AccountId) -> Result<(), anyhow::Error> {
+    async fn work(&self, account: String, queue: Arc<Queue>) -> () {
         match self {
-            Subscriber::Xrpl(sub) => sub.subscribe(account).await,
+            Subscriber::Xrpl(sub) => {
+                let res = sub.poll(AccountId::from_address(&account).unwrap()).await;
+                match res {
+                    Ok(txs) => {
+                        for tx_with_meta in txs {
+                            let tx_string = serde_json::to_string(&tx_with_meta.tx).unwrap();
+                            queue.publish(tx_string.as_bytes()).await;
+                        }
+                    }
+                    Err(e) => {
+                        error!("Error getting txs: {:?}", e);
+                        warn!("Retrying in 2 seconds");
+                    }
+                }
+            }
         }
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await
     }
 
-    pub async fn unsubscribe(&mut self, accounts: AccountId) -> Result<(), anyhow::Error> {
-        match self {
-            Subscriber::Xrpl(sub) => sub.unsubscribe(accounts).await,
-        }
-    }
-
-    pub async fn transaction_stream(
+    pub async fn run(
         &mut self,
-    ) -> Pin<Box<dyn Stream<Item = ChainTransaction> + '_>> {
-        match self {
-            Subscriber::Xrpl(sub) => Box::pin(sub.transaction_stream().await),
+        account: String,
+        queue: Arc<Queue>,
+        mut shutdown_rx: watch::Receiver<bool>,
+    ) -> () {
+        loop {
+            tokio::select! {
+                _ = self.work(account.clone(), queue.clone()) => {}
+                _ = shutdown_rx.changed() => {
+                    info!("Shutting down subscriber");
+                    break;
+                }
+            }
         }
     }
 }
 
-pub struct XrplSubscriber {
-    client: Client,
+pub struct XrplWsSubscriber {
+    client: xrpl_ws_client::client::Client,
 }
 
-impl XrplSubscriber {
-    pub async fn new(url: &str) -> XrplSubscriber {
-        let client = Client::connect(url).await.expect("Failed to setup client");
-        XrplSubscriber { client }
+impl XrplWsSubscriber {
+    pub async fn new(url: &str) -> Self {
+        let client = xrpl_ws_client::client::Client::connect(url)
+            .await
+            .expect("Failed to setup client");
+        XrplWsSubscriber { client }
     }
 }
 
-impl TransactionSubscriber for XrplSubscriber {
+impl TransactionListener for XrplWsSubscriber {
     type Transaction = ChainTransaction;
 
     async fn subscribe(&mut self, account: AccountId) -> Result<(), anyhow::Error> {
@@ -139,5 +174,31 @@ impl TransactionSubscriber for XrplSubscriber {
             warn!("Subscriber stream closed."); // TODO: should we handle?
         };
         Box::pin(s)
+    }
+}
+
+pub struct XrplSubscriber {
+    client: xrpl_http_client::Client,
+}
+
+impl XrplSubscriber {
+    pub async fn new(url: &str) -> Self {
+        // let client = Client::connect(url).await.expect("Failed to setup client");
+        let client = xrpl_http_client::Client::builder().base_url(url).build();
+        XrplSubscriber { client }
+    }
+}
+
+impl TransactionPoller for XrplSubscriber {
+    type Transaction = AccountTransaction;
+
+    async fn poll(&self, account_id: AccountId) -> Result<Vec<Self::Transaction>, anyhow::Error> {
+        let res = self
+            .client
+            .call(xrpl_api::AccountTxRequest::new(&account_id.to_address()))
+            .await;
+
+        let response = res.map_err(|e| anyhow!("Error getting txs: {:?}", e.to_string()))?;
+        Ok(response.transactions)
     }
 }
