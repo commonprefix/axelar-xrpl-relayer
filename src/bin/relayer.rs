@@ -19,6 +19,7 @@ async fn main() {
         env::var("INCLUDER_SECRET").expect("INCLUDER_SECRET environment variable");
     let queue_address = env::var("QUEUE_ADDRESS").expect("QUEUE_ADDRESS environment variable");
     let gmp_api_url = env::var("GMP_API").expect("GMP_API environment variable");
+    let xrpl_rpc = env::var("XRPL_RPC").expect("XRPL_RPC environment variable");
 
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::DEBUG)
@@ -34,7 +35,7 @@ async fn main() {
 
     let account = AccountId::from_address("rP9iHnCmJcVPtzCwYJjU1fryC2pEcVqDHv").unwrap();
 
-    let mut subscriber = Subscriber::new_xrpl("wss://s.devnet.rippletest.net:51233").await;
+    let mut subscriber = Subscriber::new_xrpl(&xrpl_rpc).await;
     let events_queue_ref = events_queue.clone();
     let subscriber_handle = tokio::spawn({
         let shutdown_rx = shutdown_rx.clone();
