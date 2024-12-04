@@ -61,7 +61,7 @@ async fn main() {
     let ingestor_handle = tokio::spawn({
         let shutdown_rx = shutdown_rx.clone();
         async move {
-            Ingestor::run(gmp_api_ref, events_queue_ref, shutdown_rx).await;
+            Ingestor::run(gmp_api_ref, events_queue_ref, multisig_address, shutdown_rx).await;
         }
     });
 
