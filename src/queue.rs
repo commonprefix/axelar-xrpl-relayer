@@ -10,7 +10,6 @@ use tracing::info;
 pub struct Queue {
     queue: lapin::Queue,
     channel: lapin::Channel,
-    consumer: Option<lapin::Consumer>,
 }
 
 impl Queue {
@@ -32,11 +31,7 @@ impl Queue {
             .unwrap();
         info!("Declared RMQ queue: {:?}", q);
 
-        Self {
-            queue: q,
-            channel,
-            consumer: None,
-        }
+        Self { queue: q, channel }
     }
 
     pub async fn publish(&self, msg: &[u8]) {
@@ -54,20 +49,16 @@ impl Queue {
         info!("Published message: {:?}", confirm);
     }
 
-    pub async fn consumer(&mut self) -> Result<&mut Consumer, anyhow::Error> {
-        if self.consumer.is_none() {
-            self.consumer = Some(
-                self.channel
-                    .basic_consume(
-                        self.queue.name().as_str(),
-                        "my consumer",
-                        BasicConsumeOptions::default(),
-                        FieldTable::default(),
-                    )
-                    .await
-                    .map_err(|e| anyhow!("Failed to create consumer: {:?}", e))?,
+    pub async fn consumer(&self) -> Result<Consumer, anyhow::Error> {
+        Ok(self
+            .channel
+            .basic_consume(
+                self.queue.name().as_str(),
+                "my consumer",
+                BasicConsumeOptions::default(),
+                FieldTable::default(),
             )
-        }
-        Ok(self.consumer.as_mut().unwrap())
+            .await
+            .map_err(|e| anyhow!("Failed to create consumer: {:?}", e))?)
     }
 }
