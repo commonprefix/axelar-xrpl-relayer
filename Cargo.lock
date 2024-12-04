@@ -354,6 +354,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.3",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
  "xrpl_api",
