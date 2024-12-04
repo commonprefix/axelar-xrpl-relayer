@@ -20,6 +20,8 @@ async fn main() {
     let queue_address = env::var("QUEUE_ADDRESS").expect("QUEUE_ADDRESS environment variable");
     let gmp_api_url = env::var("GMP_API").expect("GMP_API environment variable");
     let xrpl_rpc = env::var("XRPL_RPC").expect("XRPL_RPC environment variable");
+    let multisig_address =
+        env::var("MULTISIG_ADDRESS").expect("MULTISIG_ADDRESS environment variable");
 
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::DEBUG)
@@ -33,7 +35,7 @@ async fn main() {
     let xrpl_includer = XRPLIncluder::new(includer_secret, refund_manager_address).await;
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    let account = AccountId::from_address("rP9iHnCmJcVPtzCwYJjU1fryC2pEcVqDHv").unwrap();
+    let account = AccountId::from_address(&multisig_address).unwrap();
 
     let mut subscriber = Subscriber::new_xrpl(&xrpl_rpc).await;
     let events_queue_ref = events_queue.clone();
