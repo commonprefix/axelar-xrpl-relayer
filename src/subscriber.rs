@@ -61,7 +61,9 @@ impl Subscriber {
                     Ok(txs) => {
                         for tx_with_meta in txs {
                             let tx_string = serde_json::to_string(&tx_with_meta.tx).unwrap();
+                            info!("Publishing tx: {:?}", tx_string);
                             queue.publish(tx_string.as_bytes()).await;
+                            debug!("Published tx: {:?}", tx_string);
                         }
                     }
                     Err(e) => {

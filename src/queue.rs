@@ -46,7 +46,6 @@ impl Queue {
             )
             .await
             .unwrap();
-        info!("Published message: {:?}", confirm);
     }
 
     pub async fn consumer(&self) -> Result<Consumer, anyhow::Error> {
