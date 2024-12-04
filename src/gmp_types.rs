@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Message {
     #[serde(rename = "messageID")]
     pub message_id: String,
@@ -14,7 +14,7 @@ pub struct Message {
     pub payload_hash: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Amount {
     #[serde(rename = "tokenID")]
     pub token_id: Option<String>,
@@ -65,14 +65,14 @@ pub enum Task {
     Refund(RefundTask),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CommonEventFields {
     pub r#type: String,
     #[serde(rename = "eventID")]
     pub event_id: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Metadata {
     #[serde(rename = "txID")]
     pub tx_id: String,
@@ -81,7 +81,7 @@ pub struct Metadata {
     pub finalized: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CallEvent {
     #[serde(flatten)]
     pub common: CommonEventFields,
@@ -92,7 +92,7 @@ pub struct CallEvent {
     pub meta: Option<Metadata>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GasRefundedEvent {
     #[serde(flatten)]
     pub common: CommonEventFields,
@@ -103,7 +103,7 @@ pub struct GasRefundedEvent {
     pub cost: Amount,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GasCreditEvent {
     #[serde(flatten)]
     pub common: CommonEventFields,
@@ -115,7 +115,7 @@ pub struct GasCreditEvent {
     pub meta: Option<Metadata>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CannotExecuteMessageEvent {
     #[serde(flatten)]
     pub common: CommonEventFields,
@@ -127,7 +127,7 @@ pub struct CannotExecuteMessageEvent {
     pub details: Amount,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum Event {
     Call(CallEvent),
