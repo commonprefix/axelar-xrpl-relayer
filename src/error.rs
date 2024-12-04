@@ -6,6 +6,8 @@ pub enum IncluderError {
     Connection,
     #[error("RPC call failed: {0}")]
     RPCError(String),
+    #[error("Failed to consume queue: {0}")]
+    ConsumerError(String),
 }
 
 #[derive(Error, Debug)]
@@ -44,4 +46,12 @@ pub enum GmpApiError {
     ErrorResponse(String),
     #[error("Failed to parse response from GMP API: {0}")]
     InvalidResponse(String),
+}
+
+#[derive(Error, Debug)]
+pub enum IngestorError {
+    #[error("Failed to post event on GMP API: {0}")]
+    PostEventError(String),
+    #[error("Failed with retriable error: {0}")]
+    RetriableError(String),
 }
