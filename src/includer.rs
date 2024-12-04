@@ -1,6 +1,13 @@
+use std::{future::Future, sync::Arc};
+
 use futures::StreamExt;
-use lapin::options::BasicAckOptions;
+use lapin::{
+    options::{BasicAckOptions, BasicNackOptions},
+    Consumer,
+};
 use serde::{Deserialize, Serialize};
+use tokio::sync::watch;
+use tracing::{error, info};
 
 // parse RMQ events (amplifier tasks) and post txs XRPL chain
 use crate::{
@@ -9,13 +16,13 @@ use crate::{
 };
 
 #[derive(Debug, Serialize, Deserialize)]
-struct RefundInfo {
+pub struct RefundInfo {
     recipient: String,
     amount: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct ProverTx {
+pub struct ProverTx {
     tx_blob: String,
 }
 
@@ -26,15 +33,15 @@ pub enum IncluderMessage {
 }
 
 pub trait RefundManager {
-    async fn build_refund_tx(
+    fn build_refund_tx(
         &self,
         recipient: String,
         amount: u64,
-    ) -> Result<String, RefundManagerError>; // returns signed tx_blob
+    ) -> impl Future<Output = Result<String, RefundManagerError>>; // returns signed tx_blob
 }
 
 pub trait Broadcaster {
-    async fn broadcast(&self, tx_blob: String) -> Result<String, BroadcasterError>;
+    fn broadcast(&self, tx_blob: String) -> impl Future<Output = Result<String, BroadcasterError>>;
 }
 
 pub struct Includer<B, C, R>
@@ -42,7 +49,6 @@ where
     B: Broadcaster,
     R: RefundManager,
 {
-    pub queue: Queue,
     pub chain_client: C,
     pub broadcaster: B,
     pub refund_manager: R,
@@ -53,16 +59,49 @@ where
     B: Broadcaster,
     R: RefundManager,
 {
-    pub async fn run(&self) -> () {
-        let mut queue = self.queue.clone();
-        let consumer = queue.consumer().await.unwrap();
-        while let Some(delivery) = consumer.next().await {
-            let delivery = delivery.expect("error in consumer");
+    async fn work(&self, consumer: &mut Consumer) -> () {
+        let next_item = consumer.next().await;
 
-            let data = delivery.data.clone();
-            let includer_msg = serde_json::from_slice::<IncluderMessage>(&data).unwrap();
-            self.consume(includer_msg).await;
-            delivery.ack(BasicAckOptions::default()).await.expect("ack");
+        if let Some(delivery) = next_item {
+            match delivery {
+                Ok(delivery) => {
+                    let data = delivery.data.clone();
+                    let includer_msg = serde_json::from_slice::<IncluderMessage>(&data).unwrap();
+
+                    let consume_res = self.consume(includer_msg).await;
+                    match consume_res {
+                        Ok(_) => {
+                            info!("Successfully consumed delivery");
+                            delivery.ack(BasicAckOptions::default()).await.expect("ack");
+                        }
+                        Err(e) => {
+                            error!("Failed to consume delivery: {:?}", e);
+                            delivery
+                                .nack(BasicNackOptions::default())
+                                .await
+                                .expect("nack");
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to receive delivery: {:?}", e);
+                }
+            }
+        }
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await
+    }
+
+    pub async fn run(&self, queue: Arc<Queue>, mut shutdown_rx: watch::Receiver<bool>) -> () {
+        let queue = queue.clone();
+        let mut consumer = queue.consumer().await.unwrap();
+        loop {
+            tokio::select! {
+                _ = self.work(&mut consumer) => {}
+                _ = shutdown_rx.changed() => {
+                    info!("Shutting down includer");
+                    break;
+                }
+            }
         }
     }
 

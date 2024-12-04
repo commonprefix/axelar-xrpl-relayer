@@ -10,7 +10,6 @@ use xrpl_types::{AccountId, Amount};
 
 use crate::error::{BroadcasterError, ClientError, RefundManagerError};
 use crate::includer::{Broadcaster, Includer, RefundManager};
-use crate::queue::Queue;
 
 const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(3);
 const RPC_URL: &str = "https://s.devnet.rippletest.net:51234";
@@ -104,9 +103,6 @@ pub struct XRPLIncluder {}
 impl XRPLIncluder {
     pub async fn new<'a>(
     ) -> Includer<XRPLBroadcaster, Arc<xrpl_http_client::Client>, XRPLRefundManager> {
-        let addr = "amqp://127.0.0.1:5672";
-        let q = Queue::new(addr, "xrpl_amp_tasks").await;
-
         let client = Arc::new(XRPLClient::new_http_client(RPC_URL).unwrap());
 
         let broadcaster = XRPLBroadcaster::new(Arc::clone(&client)).unwrap();
@@ -121,7 +117,6 @@ impl XRPLIncluder {
         );
 
         let includer = Includer {
-            queue: q,
             chain_client: client,
             broadcaster,
             refund_manager,
