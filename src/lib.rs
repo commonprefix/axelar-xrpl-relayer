@@ -1,3 +1,4 @@
+pub mod distributor;
 pub mod error;
 pub mod gmp_api;
 pub mod gmp_types;
