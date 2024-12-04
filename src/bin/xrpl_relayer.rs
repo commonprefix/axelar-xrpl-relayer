@@ -23,7 +23,7 @@ async fn main() {
 
     let tasks_queue = Arc::new(Queue::new(&config.queue_address, "tasks").await);
     let events_queue = Arc::new(Queue::new(&config.queue_address, "events").await);
-    let gmp_api = Arc::new(gmp_api::GmpApi::new(&config.gmp_api_url).unwrap());
+    let gmp_api = Arc::new(gmp_api::GmpApi::new(&config.gmp_api_url, "xrpl").unwrap());
     let xrpl_includer =
         XRPLIncluder::new(config.includer_secret, config.refund_manager_address).await;
     let (shutdown_tx, shutdown_rx) = watch::channel(false);

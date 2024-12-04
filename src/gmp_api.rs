@@ -15,13 +15,14 @@ use crate::{
 pub struct GmpApi {
     rpc_url: String,
     client: Client,
+    chain: String,
 }
 
 const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(3);
 const TASKS_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 impl GmpApi {
-    pub fn new(rpc_url: &str) -> Result<Self, GmpApiError> {
+    pub fn new(rpc_url: &str, chain: &str) -> Result<Self, GmpApiError> {
         let client = reqwest::ClientBuilder::new()
             .connect_timeout(DEFAULT_RPC_TIMEOUT.into())
             .timeout(DEFAULT_RPC_TIMEOUT)
@@ -31,13 +32,14 @@ impl GmpApi {
         Ok(Self {
             rpc_url: rpc_url.to_owned(),
             client,
+            chain: chain.to_owned(),
         })
     }
 
     pub async fn get_tasks_action(&self) -> Result<Vec<Task>, GmpApiError> {
         let res = self
             .client
-            .get(&format!("{}/tasks", self.rpc_url))
+            .get(&format!("{}/chains/{}/tasks", self.rpc_url, self.chain))
             .send()
             .await
             .map_err(|e| GmpApiError::RequestFailed(e.to_string()))?;
@@ -94,7 +96,7 @@ impl GmpApi {
 
         let res = self
             .client
-            .post(&format!("{}/events", self.rpc_url))
+            .post(&format!("{}/chains/{}/events", self.rpc_url, self.chain))
             .json(&map)
             .send()
             .await
@@ -108,6 +110,35 @@ impl GmpApi {
                     .map_err(|e| GmpApiError::InvalidResponse(e.to_string()))?;
                 info!("Response from POST: {:?}", response);
                 Ok(response.results)
+            }
+            Err(e) => Err(GmpApiError::ErrorResponse(e.to_string())),
+        }
+    }
+
+    pub async fn post_broadcast(
+        &self,
+        contract_address: String,
+        payload: &[u8],
+    ) -> Result<(), GmpApiError> {
+        let res = self
+            .client
+            .post(&format!(
+                "{}/contracts/{}/broadcasts",
+                self.rpc_url, contract_address
+            ))
+            .body(payload.to_vec())
+            .send()
+            .await
+            .map_err(|e| GmpApiError::RequestFailed(e.to_string()))?;
+
+        match res.error_for_status_ref() {
+            Ok(_) => {
+                let response = res
+                    .text()
+                    .await
+                    .map_err(|e| GmpApiError::InvalidResponse(e.to_string()))?;
+                info!("Response from broadcast: {:?}", response);
+                Ok(())
             }
             Err(e) => Err(GmpApiError::ErrorResponse(e.to_string())),
         }
@@ -175,12 +206,12 @@ mod tests {
         let url = server.url();
 
         let _mock = server
-            .mock("GET", "/tasks")
+            .mock("GET", "/chains/test/tasks")
             .with_status(200)
             .with_body(response)
             .create();
 
-        let api = GmpApi::new(&url).unwrap();
+        let api = GmpApi::new(&url, "test").unwrap();
 
         let result = api.get_tasks_action().await;
 
@@ -261,12 +292,12 @@ mod tests {
         let url = server.url();
 
         let _mock = server
-            .mock("POST", "/events")
+            .mock("POST", "/chains/test/events")
             .with_status(200)
             .with_body(response)
             .create();
 
-        let api = GmpApi::new(&url).unwrap();
+        let api = GmpApi::new(&url, "test").unwrap();
 
         let events = vec![];
         let result = api.post_events(events).await;
@@ -305,14 +336,14 @@ mod tests {
         "#;
 
         let _mock = server
-            .mock("POST", "/events")
+            .mock("POST", "/chains/test/events")
             .match_body(r#"{"events":[{"type":"CALL","eventID":"event1","message":{"messageID":"msg1","sourceChain":"chainA","sourceAddress":"srcAddrA","destinationAddress":"destAddrA","payloadHash":"payload123"},"destinationChain":"chainB","payload":"payloadData","meta":null}]}"#)
             .with_status(200)
             .with_body(response_body)
             .create_async()
             .await;
 
-        let api = GmpApi::new(&url).unwrap();
+        let api = GmpApi::new(&url, "test").unwrap();
 
         let events = vec![Event::Call(CallEvent {
             common: CommonEventFields {
