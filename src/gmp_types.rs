@@ -21,14 +21,14 @@ pub struct Amount {
     pub amount: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct CommonTaskFields {
     pub id: String,
     pub timestamp: String,
     pub r#type: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct ExecuteTaskFields {
     pub message: Message,
     pub payload: String,
@@ -36,14 +36,63 @@ pub struct ExecuteTaskFields {
     pub available_gas_balance: Amount,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct ExecuteTask {
     #[serde(flatten)]
     pub common: CommonTaskFields,
     pub task: ExecuteTaskFields,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct GatewayTxTaskFields {
+    #[serde(rename = "executeData")]
+    pub execute_data: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct GatewayTxTask {
+    #[serde(flatten)]
+    pub common: CommonTaskFields,
+    pub task: GatewayTxTaskFields,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct VerifyTaskFields {
+    pub todo: String, // TODO
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct VerifyTask {
+    #[serde(flatten)]
+    pub common: CommonTaskFields,
+    pub task: VerifyTaskFields,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct ConstructProofTaskFields {
+    pub todo: String, // TODO
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct ConstructProofTask {
+    #[serde(flatten)]
+    pub common: CommonTaskFields,
+    pub task: ConstructProofTaskFields,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct ReactToWasmEventTaskFields {
+    pub todo: String, // TODO
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct ReactToWasmEventTask {
+    #[serde(flatten)]
+    pub common: CommonTaskFields,
+    pub task: ReactToWasmEventTaskFields,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct RefundTaskFields {
     pub message: Message,
     #[serde(rename = "refundRecipientAddress")]
@@ -52,16 +101,20 @@ pub struct RefundTaskFields {
     pub remaining_gas_balance: Amount,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct RefundTask {
     #[serde(flatten)]
     pub common: CommonTaskFields,
     pub task: RefundTaskFields,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum Task {
+    Verify(VerifyTask),
     Execute(ExecuteTask),
+    GatewayTx(GatewayTxTask),
+    ConstructProof(ConstructProofTask),
+    ReactToWasmEvent(ReactToWasmEventTask),
     Refund(RefundTask),
 }
 
@@ -136,7 +189,7 @@ pub enum Event {
     CannotExecuteMessage(CannotExecuteMessageEvent),
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct PostEventResult {
     pub status: String,
     pub index: usize,
@@ -144,7 +197,7 @@ pub struct PostEventResult {
     pub retriable: Option<bool>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct PostEventResponse {
     pub results: Vec<PostEventResult>,
 }
