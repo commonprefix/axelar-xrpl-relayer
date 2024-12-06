@@ -5,37 +5,20 @@ use lapin::{
     options::{BasicAckOptions, BasicNackOptions},
     Consumer,
 };
-use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 use tracing::{error, info};
 
 use crate::{
     error::{BroadcasterError, IncluderError, RefundManagerError},
-    queue::Queue,
+    gmp_types::Task,
+    queue::{Queue, QueueItem},
 };
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct RefundInfo {
-    recipient: String,
-    amount: u64,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ProverTx {
-    tx_blob: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub enum IncluderMessage {
-    Refund(RefundInfo),
-    Prover(ProverTx),
-}
 
 pub trait RefundManager {
     fn build_refund_tx(
         &self,
         recipient: String,
-        amount: u64,
+        amount: String,
     ) -> impl Future<Output = Result<String, RefundManagerError>>; // returns signed tx_blob
 }
 
@@ -65,9 +48,9 @@ where
             match delivery {
                 Ok(delivery) => {
                     let data = delivery.data.clone();
-                    let includer_msg = serde_json::from_slice::<IncluderMessage>(&data).unwrap();
+                    let task = serde_json::from_slice::<QueueItem>(&data).unwrap();
 
-                    let consume_res = self.consume(includer_msg).await;
+                    let consume_res = self.consume(task).await;
                     match consume_res {
                         Ok(_) => {
                             info!("Successfully consumed delivery");
@@ -104,23 +87,36 @@ where
         }
     }
 
-    pub async fn consume(&self, msg: IncluderMessage) -> Result<(), IncluderError> {
-        match msg {
-            IncluderMessage::Refund(refund_info) => {
-                let tx_blob = self
-                    .refund_manager
-                    .build_refund_tx(refund_info.recipient, refund_info.amount)
-                    .await
-                    .unwrap();
-                let res = self.broadcaster.broadcast(tx_blob).await.unwrap();
-                println!("{:?}", res);
-            }
-            IncluderMessage::Prover(prover_tx) => {
-                let res = self.broadcaster.broadcast(prover_tx.tx_blob).await.unwrap();
-                println!("{:?}", res);
-            }
+    pub async fn consume(&self, task: QueueItem) -> Result<(), IncluderError> {
+        match task {
+            QueueItem::Task(task) => match task {
+                Task::GatewayTx(gateway_tx_task) => {
+                    let res = self
+                        .broadcaster
+                        .broadcast(gateway_tx_task.task.execute_data)
+                        .await
+                        .unwrap();
+                    println!("{:?}", res);
+                    Ok(())
+                }
+                Task::Refund(refund_task) => {
+                    let tx_blob = self
+                        .refund_manager
+                        .build_refund_tx(
+                            refund_task.task.refund_recipient_address,
+                            refund_task.task.remaining_gas_balance.amount, // TODO: check if this is correct
+                        )
+                        .await
+                        .unwrap();
+                    let res = self.broadcaster.broadcast(tx_blob).await.unwrap();
+                    println!("{:?}", res);
+                    Ok(())
+                }
+                _ => Err(IncluderError::IrrelevantTask),
+            },
+            _ => Err(IncluderError::GenericError(
+                "Invalid queue item".to_string(),
+            )),
         }
-
-        Ok(())
     }
 }

@@ -53,11 +53,11 @@ impl RefundManager for XRPLRefundManager {
     async fn build_refund_tx(
         &self,
         recipient: String,
-        drops: u64,
+        drops: String,
     ) -> Result<String, RefundManagerError> {
         let mut tx = PaymentTransaction::new(
             self.account_id,
-            Amount::drops(drops).unwrap(),
+            Amount::drops(drops.parse::<u64>().unwrap()).unwrap(), // TODO: could this overflow?
             AccountId::from_address(&recipient).unwrap(),
         );
 
