@@ -8,6 +8,10 @@ pub enum IncluderError {
     RPCError(String),
     #[error("Failed to consume queue: {0}")]
     ConsumerError(String),
+    #[error("Irrelevant task")]
+    IrrelevantTask,
+    #[error("Generic error: {0}")]
+    GenericError(String),
 }
 
 #[derive(Error, Debug)]
@@ -54,4 +58,6 @@ pub enum IngestorError {
     PostEventError(String),
     #[error("Failed with retriable error: {0}")]
     RetriableError(String),
+    #[error("Irrelevant task")]
+    IrrelevantTask,
 }
