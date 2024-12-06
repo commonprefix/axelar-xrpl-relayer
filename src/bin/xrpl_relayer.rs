@@ -51,12 +51,14 @@ async fn main() {
 
     let gmp_api_ref = gmp_api.clone();
     let events_queue_ref = events_queue.clone();
+    let tasks_queue_ref = tasks_queue.clone();
     let ingestor_handle = tokio::spawn({
         let shutdown_rx = shutdown_rx.clone();
         async move {
             Ingestor::run(
                 gmp_api_ref,
                 events_queue_ref,
+                tasks_queue_ref,
                 config.multisig_address,
                 shutdown_rx,
             )

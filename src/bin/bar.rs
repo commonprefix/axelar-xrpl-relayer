@@ -17,7 +17,7 @@ async fn main() {
     let xrpl_includer = XRPLIncluder::new(includer_secret, refund_manager_address).await;
     let tx = xrpl_includer
         .refund_manager
-        .build_refund_tx("rBgPkze2VmNFutLCPzHs5QQBUSskVRjfjj".to_string(), 1230000)
+        .build_refund_tx("rBgPkze2VmNFutLCPzHs5QQBUSskVRjfjj".to_string(), "1230000".to_string())
         .await
         .unwrap();
     println!("{:?}", tx);
