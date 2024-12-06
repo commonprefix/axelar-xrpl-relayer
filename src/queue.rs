@@ -4,12 +4,21 @@ use lapin::{
     types::FieldTable,
     BasicProperties, Connection, ConnectionProperties, Consumer,
 };
+use serde::{Deserialize, Serialize};
 use tracing::info;
+
+use crate::{gmp_types::Task, subscriber::ChainTransaction};
 
 #[derive(Clone)]
 pub struct Queue {
     queue: lapin::Queue,
     channel: lapin::Channel,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum QueueItem {
+    Task(Task),
+    Transaction(ChainTransaction),
 }
 
 impl Queue {
