@@ -143,6 +143,39 @@ impl GmpApi {
             Err(e) => Err(GmpApiError::ErrorResponse(e.to_string())),
         }
     }
+
+    pub async fn post_query(
+        &self,
+        contract_address: String,
+        payload: &[u8],
+    ) -> Result<(), GmpApiError> {
+        let res = self
+            .client
+            .post(&format!(
+                "{}/contracts/{}/queries",
+                self.rpc_url, contract_address
+            ))
+            .body(payload.to_vec())
+            .send()
+            .await
+            .map_err(|e| GmpApiError::RequestFailed(e.to_string()))?;
+
+        match res.error_for_status_ref() {
+            Ok(_) => {
+                let response = res
+                    .text()
+                    .await
+                    .map_err(|e| GmpApiError::InvalidResponse(e.to_string()))?;
+                info!("Response from broadcast: {:?}", response);
+                Ok(())
+            }
+            Err(e) => Err(GmpApiError::ErrorResponse(e.to_string())),
+        }
+    }
+
+    pub async fn verify_messages() {
+        todo!()
+    }
 }
 
 #[cfg(test)]
