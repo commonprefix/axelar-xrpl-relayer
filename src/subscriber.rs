@@ -7,7 +7,10 @@ use tracing::{debug, error, info, warn};
 use xrpl_api::Transaction;
 use xrpl_types::AccountId;
 
-use crate::{queue::Queue, xrpl_subscriber::XrplSubscriber};
+use crate::{
+    queue::{Queue, QueueItem},
+    xrpl_subscriber::XrplSubscriber,
+};
 
 pub trait TransactionListener {
     type Transaction;
@@ -37,7 +40,7 @@ pub enum Subscriber {
     Xrpl(XrplSubscriber),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum ChainTransaction {
     Xrpl(Transaction),
 }
@@ -55,10 +58,12 @@ impl Subscriber {
                 match res {
                     Ok(txs) => {
                         for tx_with_meta in txs {
-                            let tx_string =
-                                serde_json::to_string(&ChainTransaction::Xrpl(tx_with_meta.tx))
-                                    .unwrap();
-                            info!("Publishing tx: {:?}", tx_string);
+                            let chain_transaction = ChainTransaction::Xrpl(tx_with_meta.tx.clone());
+                            let tx_string = serde_json::to_string(&QueueItem::Transaction(
+                                chain_transaction.clone(),
+                            ))
+                            .unwrap();
+                            info!("Publishing tx: {:?}", chain_transaction);
                             queue.publish(tx_string.as_bytes()).await;
                             debug!("Published tx: {:?}", tx_string);
                         }
