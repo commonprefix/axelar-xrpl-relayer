@@ -86,9 +86,7 @@ impl Ingestor {
                 Task::Verify(verify_task) => todo!(),
                 Task::ConstructProof(construct_proof_task) => todo!(),
                 Task::ReactToWasmEvent(react_to_wasm_event_task) => todo!(),
-                Task::Execute(_) => Err(IngestorError::IrrelevantTask),
-                Task::GatewayTx(_) => Err(IngestorError::IrrelevantTask),
-                Task::Refund(_) => Err(IngestorError::IrrelevantTask),
+                _ => Err(IngestorError::IrrelevantTask),
             },
             QueueItem::Transaction(chain_transaction) => {
                 match chain_transaction {
