@@ -8,57 +8,63 @@ use lapin::{
 };
 use tokio::sync::watch;
 use tracing::{debug, error, info, warn};
-use xrpl_api::Transaction;
 
 use crate::{
     error::IngestorError,
     gmp_api::GmpApi,
-    gmp_types::{CallEvent, CommonEventFields, Event, Message, Task},
+    gmp_types::Task,
     queue::{Queue, QueueItem},
     subscriber::ChainTransaction,
+    xrpl_ingestor::XrplIngestor,
 };
 
-pub struct Ingestor {}
+pub struct Ingestor {
+    gmp_api: Arc<GmpApi>,
+    xrpl_ingestor: XrplIngestor,
+}
 
 impl Ingestor {
-    async fn work(gmp_api: Arc<GmpApi>, consumer: &mut Consumer, multisig_address: String) -> () {
-        let next_item = consumer.next().await;
-        if let Some(delivery) = next_item {
-            match delivery {
-                Ok(delivery) => {
-                    let data = delivery.data.clone();
-                    debug!("Received data string: {:?}", str::from_utf8(&data).unwrap());
-                    let item = serde_json::from_slice::<QueueItem>(&data).unwrap();
-                    let consume_res = Ingestor::consume(gmp_api, item, multisig_address).await;
-                    match consume_res {
-                        Ok(_) => {
-                            delivery.ack(BasicAckOptions::default()).await.expect("ack");
-                        }
-                        Err(e) => {
-                            warn!("Error consuming tx: {:?}", e);
-                            delivery
-                                .nack(BasicNackOptions {
-                                    multiple: false,
-                                    requeue: true,
-                                })
-                                .await
-                                .expect("nack");
-                        }
+    pub fn new(gmp_api: Arc<GmpApi>, multisig_address: String) -> Self {
+        let xrpl_ingestor = XrplIngestor::new(gmp_api.clone(), multisig_address.clone());
+        Self {
+            gmp_api,
+            xrpl_ingestor,
+        }
+    }
+
+    async fn work(&self, consumer: &mut Consumer) -> () {
+        match consumer.next().await {
+            Some(Ok(delivery)) => {
+                if let Err(e) = self.process_delivery(&delivery.data).await {
+                    warn!("Error consuming message: {:?}", e);
+                    if let Err(nack_err) = delivery
+                        .nack(BasicNackOptions {
+                            multiple: false,
+                            requeue: true,
+                        })
+                        .await
+                    {
+                        error!("Failed to nack message: {:?}", nack_err);
                     }
+                } else if let Err(ack_err) = delivery.ack(BasicAckOptions::default()).await {
+                    error!("Failed to ack message: {:?}", ack_err);
                 }
-                Err(e) => {
-                    error!("Failed to receive delivery: {:?}", e);
-                }
+            }
+            Some(Err(e)) => {
+                error!("Failed to receive delivery: {:?}", e);
+            }
+            None => {
+                //TODO:  Consumer stream ended. Possibly handle reconnection logic here if needed.
+                warn!("No more messages from consumer.");
             }
         }
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await
     }
 
     pub async fn run(
-        gmp_api: Arc<GmpApi>,
+        &self,
         events_queue: Arc<Queue>,
         tasks_queue: Arc<Queue>,
-        multisig_address: String,
         mut shutdown_rx: watch::Receiver<bool>,
     ) -> () {
         let mut events_consumer = events_queue.consumer().await.unwrap();
@@ -66,8 +72,8 @@ impl Ingestor {
 
         loop {
             tokio::select! {
-                _ = Ingestor::work(gmp_api.clone(), &mut events_consumer, multisig_address.clone()) => {}
-                _ = Ingestor::work(gmp_api.clone(), &mut tasks_consumer, multisig_address.clone()) => {}
+                _ = self.work(&mut events_consumer) => {}
+                _ = self.work(&mut tasks_consumer) => {}
                 _ = shutdown_rx.changed() => {
                     info!("Shutting down ingestor");
                     break;
@@ -76,105 +82,62 @@ impl Ingestor {
         }
     }
 
-    pub async fn consume(
-        gmp_api: Arc<GmpApi>,
-        item: QueueItem,
-        multisig_address: String,
-    ) -> Result<(), IngestorError> {
+    async fn process_delivery(&self, data: &[u8]) -> Result<(), IngestorError> {
+        let data_str = str::from_utf8(&data)
+            .map_err(|e| IngestorError::ParseError(format!("Invalid UTF-8 data: {}", e)))?;
+        debug!("Received data string: {:?}", data_str);
+
+        let item = serde_json::from_slice::<QueueItem>(&data)
+            .map_err(|e| IngestorError::ParseError(format!("Invalid JSON: {}", e)))?;
+
+        self.consume(item).await
+    }
+
+    pub async fn consume(&self, item: QueueItem) -> Result<(), IngestorError> {
         match item {
-            QueueItem::Task(task) => match task {
-                Task::Verify(verify_task) => todo!(),
-                Task::ConstructProof(construct_proof_task) => todo!(),
-                Task::ReactToWasmEvent(react_to_wasm_event_task) => todo!(),
-                _ => Err(IngestorError::IrrelevantTask),
-            },
+            QueueItem::Task(task) => self.consume_task(task).await,
             QueueItem::Transaction(chain_transaction) => {
-                match chain_transaction {
-                    ChainTransaction::Xrpl(tx) => {
-                        // TODO: query the gateway on Axelar to get the ITS Hub message
-                        match tx {
-                            Transaction::Payment(payment) => {
-                                if payment.destination != multisig_address {
-                                    return Ok(());
-                                }
+                self.consume_transaction(chain_transaction).await
+            }
+        }
+    }
 
-                                // TODO: also create GAS_CREDIT event
-                                let event = Event::Call(CallEvent {
-                                    common: CommonEventFields {
-                                        r#type: "CALL".to_owned(),
-                                        event_id: "myeventid".to_owned(),
-                                    },
-                                    message: Message {
-                                        message_id: "message_id".to_owned(), // TODO
-                                        source_chain: "xrpl".to_owned(),
-                                        source_address: payment.common.account,
-                                        destination_address: str::from_utf8(
-                                            hex::decode(
-                                                payment.common.memos.clone().unwrap()[0]
-                                                    .memo_data
-                                                    .clone()
-                                                    .unwrap(),
-                                            )
-                                            .unwrap()
-                                            .as_slice(),
-                                        )
-                                        .unwrap()
-                                        .to_string(),
-                                        payload_hash: payment.common.memos.clone().unwrap()[2]
-                                            .memo_data
-                                            .clone()
-                                            .unwrap(),
-                                    },
-                                    destination_chain: str::from_utf8(
-                                        hex::decode(
-                                            payment.common.memos.clone().unwrap()[1]
-                                                .memo_data
-                                                .clone()
-                                                .unwrap(),
-                                        )
-                                        .unwrap()
-                                        .as_slice(),
-                                    )
-                                    .unwrap()
-                                    .to_string(),
-                                    payload: "".to_owned(),
-                                    meta: None,
-                                });
+    pub async fn consume_transaction(
+        &self,
+        transaction: ChainTransaction,
+    ) -> Result<(), IngestorError> {
+        let events = match transaction {
+            ChainTransaction::Xrpl(tx) => self.xrpl_ingestor.handle_transaction(tx).await?,
+        };
 
-                                info!("Posting event: {:?}", event);
-                                // TODO: batching
-                                let res = gmp_api
-                                    .post_events(vec![event.clone()])
-                                    .await
-                                    .map_err(|e| IngestorError::PostEventError(e.to_string()))?;
-                                let res = res.get(0).unwrap();
+        info!("Posting events: {:?}", events.clone());
+        let response = self
+            .gmp_api
+            .post_events(events)
+            .await
+            .map_err(|e| IngestorError::PostEventError(e.to_string()))?;
 
-                                if res.status != "ACCEPTED" {
-                                    error!("Posting event failed: {:?}", res.error.clone());
-                                    if res.retriable.is_some() && res.retriable.unwrap() {
-                                        return Err(IngestorError::RetriableError(
-                                            res.error.clone().unwrap_or_default(),
-                                        ));
-                                    }
-                                }
-                            }
-                            Transaction::TrustSet(_) => {
-                                todo!()
-                            }
-                            Transaction::SignerListSet(_) => {
-                                todo!()
-                            }
-                            Transaction::TicketCreate(_) => {
-                                todo!()
-                            }
-                            _ => {
-                                warn!("Received non-payment tx: {:?}", tx);
-                            }
-                        }
-                        Ok(())
-                    }
+        for event_response in response {
+            if event_response.status != "ACCEPTED" {
+                error!("Posting event failed: {:?}", event_response.error.clone());
+                if event_response.retriable.is_some() && event_response.retriable.unwrap() {
+                    return Err(IngestorError::RetriableError(
+                        // TODO: retry? Handle error responses for part of the batch
+                        // Question: what happens if we send the same event multiple times?
+                        event_response.error.clone().unwrap_or_default(),
+                    ));
                 }
             }
+        }
+        Ok(()) // TODO: better error handling
+    }
+
+    pub async fn consume_task(&self, task: Task) -> Result<(), IngestorError> {
+        match task {
+            Task::Verify(verify_task) => todo!(),
+            Task::ConstructProof(construct_proof_task) => todo!(),
+            Task::ReactToWasmEvent(react_to_wasm_event_task) => todo!(),
+            _ => Err(IngestorError::IrrelevantTask),
         }
     }
 }

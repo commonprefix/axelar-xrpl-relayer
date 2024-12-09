@@ -1,7 +1,18 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct RouterMessage {
+    // TODO: can this be imported?
+    pub cc_id: String,
+    pub source_address: String,
+    pub destination_chain: String,
+    pub destination_address: String,
+    pub payload_hash: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Message {
+    // TODO: can this be imported?
     #[serde(rename = "messageID")]
     pub message_id: String,
     #[serde(rename = "sourceChain")]
@@ -135,58 +146,46 @@ pub struct Metadata {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct CallEvent {
-    #[serde(flatten)]
-    pub common: CommonEventFields,
-    pub message: Message,
-    #[serde(rename = "destinationChain")]
-    pub destination_chain: String,
-    pub payload: String,
-    pub meta: Option<Metadata>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct GasRefundedEvent {
-    #[serde(flatten)]
-    pub common: CommonEventFields,
-    #[serde(rename = "recipientAddress")]
-    pub recipient_address: String,
-    #[serde(rename = "refundedAmount")]
-    pub refunded_amount: Amount,
-    pub cost: Amount,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct GasCreditEvent {
-    #[serde(flatten)]
-    pub common: CommonEventFields,
-    #[serde(rename = "messageID")]
-    pub message_id: String,
-    #[serde(rename = "refundAddress")]
-    pub refund_address: String,
-    pub payment: Amount,
-    pub meta: Option<Metadata>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct CannotExecuteMessageEvent {
-    #[serde(flatten)]
-    pub common: CommonEventFields,
-    #[serde(rename = "eventID")]
-    pub event_id: String,
-    #[serde(rename = "taskItemID")]
-    pub task_item_id: String,
-    pub reason: String,
-    pub details: Amount,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum Event {
-    Call(CallEvent),
-    GasRefunded(GasRefundedEvent),
-    GasCredit(GasCreditEvent),
-    CannotExecuteMessage(CannotExecuteMessageEvent),
+    Call {
+        #[serde(flatten)]
+        common: CommonEventFields,
+        message: Message,
+        #[serde(rename = "destinationChain")]
+        destination_chain: String,
+        payload: String,
+        meta: Option<Metadata>,
+    },
+    GasRefunded {
+        #[serde(flatten)]
+        common: CommonEventFields,
+        #[serde(rename = "recipientAddress")]
+        recipient_address: String,
+        #[serde(rename = "refundedAmount")]
+        refunded_amount: Amount,
+        cost: Amount,
+    },
+    GasCredit {
+        #[serde(flatten)]
+        common: CommonEventFields,
+        #[serde(rename = "messageID")]
+        message_id: String,
+        #[serde(rename = "refundAddress")]
+        refund_address: String,
+        payment: Amount,
+        meta: Option<Metadata>,
+    },
+    CannotExecuteMessage {
+        #[serde(flatten)]
+        common: CommonEventFields,
+        #[serde(rename = "eventID")]
+        event_id: String,
+        #[serde(rename = "taskItemID")]
+        task_item_id: String,
+        reason: String,
+        details: Amount,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]

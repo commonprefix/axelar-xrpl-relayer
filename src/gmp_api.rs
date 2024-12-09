@@ -148,7 +148,7 @@ impl GmpApi {
         &self,
         contract_address: String,
         payload: &[u8],
-    ) -> Result<(), GmpApiError> {
+    ) -> Result<String, GmpApiError> {
         let res = self
             .client
             .post(&format!(
@@ -166,8 +166,8 @@ impl GmpApi {
                     .text()
                     .await
                     .map_err(|e| GmpApiError::InvalidResponse(e.to_string()))?;
-                info!("Response from broadcast: {:?}", response);
-                Ok(())
+                info!("Response from query broadcast: {:?}", response);
+                Ok(response)
             }
             Err(e) => Err(GmpApiError::ErrorResponse(e.to_string())),
         }

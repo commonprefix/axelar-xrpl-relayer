@@ -60,4 +60,10 @@ pub enum IngestorError {
     RetriableError(String),
     #[error("Irrelevant task")]
     IrrelevantTask,
+    #[error("Failed to parse data: {0}")]
+    ParseError(String),
+    #[error("Unsupported transaction: {0}")]
+    UnsupportedTransaction(String),
+    #[error("Generic error: {0}")]
+    GenericError(String),
 }
