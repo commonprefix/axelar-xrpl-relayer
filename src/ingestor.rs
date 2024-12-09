@@ -134,7 +134,7 @@ impl Ingestor {
 
     pub async fn consume_task(&self, task: Task) -> Result<(), IngestorError> {
         match task {
-            Task::Verify(verify_task) => todo!(),
+            Task::Verify(verify_task) => self.xrpl_ingestor.handle_verify(verify_task).await,
             Task::ConstructProof(construct_proof_task) => todo!(),
             Task::ReactToWasmEvent(react_to_wasm_event_task) => todo!(),
             _ => Err(IngestorError::IrrelevantTask),

@@ -1,5 +1,5 @@
 use core::str;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use serde::{Deserialize, Serialize};
 use xrpl_api::{PaymentTransaction, Transaction};
@@ -7,10 +7,17 @@ use xrpl_api::{PaymentTransaction, Transaction};
 use crate::{
     error::IngestorError,
     gmp_api::GmpApi,
-    gmp_types::{self, CommonEventFields, Event, Message, RouterMessage},
+    gmp_types::{self, CommonEventFields, Event, Message, Metadata, RouterMessage, VerifyTask},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
+pub enum XRPLMessage {
+    // TODO: import
+    ProverMessage(String),
+    UserMessage(XRPLUserMessage),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct XRPLUserMessage {
     // TODO: can this be imported?
     tx_id: String,
@@ -24,6 +31,11 @@ pub struct XRPLUserMessage {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum QueryMsg {
     GetITSMessage(XRPLUserMessage), // TODO: can this be imported?
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum ExecuteMessage {
+    VerifyMessages(Vec<XRPLUserMessage>), // TODO: can this be imported?
 }
 
 pub struct XrplIngestor {
@@ -119,7 +131,7 @@ impl XrplIngestor {
                 .unwrap(), // TODO: Assumption: the actual amount to be wrapped is in the third memo as a string (drops)
         };
 
-        let query = QueryMsg::GetITSMessage(xrpl_user_message);
+        let query = QueryMsg::GetITSMessage(xrpl_user_message.clone());
         let its_hub_message: RouterMessage = serde_json::from_str(
             &self
                 .gmp_api
@@ -139,6 +151,11 @@ impl XrplIngestor {
             IngestorError::GenericError(format!("Failed to parse ITS Message: {}", e.to_string()))
         })?;
 
+        let mut source_context = HashMap::new();
+        source_context.insert(
+            "user_message".to_owned(),
+            serde_json::to_string(&xrpl_user_message).unwrap(),
+        ); // TODO: is that what we want to store here?
         Ok(Event::Call {
             common: CommonEventFields {
                 r#type: "CALL".to_owned(),
@@ -153,7 +170,12 @@ impl XrplIngestor {
             },
             destination_chain: its_hub_message.destination_chain,
             payload: "".to_owned(), // TODO
-            meta: None,
+            meta: Some(Metadata {
+                tx_id: None,
+                from_address: None,
+                finalized: None,
+                source_context: Some(source_context),
+            }),
         })
     }
 
@@ -189,5 +211,46 @@ impl XrplIngestor {
             },
             meta: None,
         })
+    }
+
+    pub async fn handle_verify(&self, task: VerifyTask) -> Result<(), IngestorError> {
+        let source_context = task
+            .task
+            .meta
+            .ok_or(IngestorError::GenericError(
+                "Verify task missing meta field".to_owned(),
+            ))?
+            .source_context
+            .ok_or(IngestorError::GenericError(
+                "Verify task missing source_context field".to_owned(),
+            ))?;
+
+        let user_message: XRPLUserMessage =
+            serde_json::from_str(source_context.get(&"user_message".to_owned()).ok_or(
+                IngestorError::GenericError(
+                    "Verify task missing user_message in source_context".to_owned(),
+                ),
+            )?)
+            .map_err(|e| {
+                IngestorError::GenericError(format!(
+                    "Failed to parse source context to XRPL User Message: {}",
+                    e.to_string()
+                ))
+            })?;
+
+        let message = ExecuteMessage::VerifyMessages(vec![user_message]);
+        Ok(self
+            .gmp_api
+            .post_broadcast(
+                "".to_owned(),
+                serde_json::to_string(&message).unwrap().as_bytes(),
+            )
+            .await
+            .map_err(|e| {
+                IngestorError::GenericError(format!(
+                    "Failed to broadcast message: {}",
+                    e.to_string()
+                ))
+            })?)
     }
 }
