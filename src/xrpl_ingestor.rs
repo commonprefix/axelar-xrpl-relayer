@@ -1,5 +1,5 @@
 use core::str;
-use std::{sync::Arc};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use xrpl_api::{PaymentTransaction, Transaction};
@@ -191,9 +191,9 @@ impl XrplIngestor {
         Ok(Event::GasCredit {
             common: CommonEventFields {
                 r#type: "GAS_CREDIT".to_owned(),
-                event_id: "myeventid".to_owned(), // TODO: what should this be for gas credit events?
+                event_id: tx_hash.clone(),
             },
-            message_id: format!("{}-0", tx_hash), // TODO: should the log index be 0?
+            message_id: tx_hash,
             refund_address: payment.common.account.clone(),
             payment: gmp_types::Amount {
                 token_id: None, // TODO: should this be None when referring to Drops?
