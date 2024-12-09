@@ -87,7 +87,9 @@ pub struct VerifyTask {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct ConstructProofTaskFields {
-    pub todo: String, // TODO
+    // TODO: finalize fields
+    pub cc_id: String,
+    pub payload: String
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]

@@ -135,12 +135,17 @@ impl Ingestor {
     pub async fn consume_task(&self, task: Task) -> Result<(), IngestorError> {
         match task {
             Task::Verify(verify_task) => self.xrpl_ingestor.handle_verify(verify_task).await,
-            Task::ConstructProof(construct_proof_task) => todo!(),
             Task::ReactToWasmEvent(react_to_wasm_event_task) => {
                 self.xrpl_ingestor
                     .handle_wasm_event(react_to_wasm_event_task)
                     .await
             }
+            Task::ConstructProof(construct_proof_task) => {
+                self.xrpl_ingestor
+                    .handle_construct_proof(construct_proof_task)
+                    .await
+            }
+            Task::Refund(refund_task) => todo!(),
             _ => Err(IngestorError::IrrelevantTask),
         }
     }

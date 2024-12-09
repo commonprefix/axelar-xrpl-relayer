@@ -7,7 +7,10 @@ use xrpl_api::{PaymentTransaction, Transaction};
 use crate::{
     error::IngestorError,
     gmp_api::GmpApi,
-    gmp_types::{self, CommonEventFields, Event, Message, ReactToWasmEventTask, VerifyTask},
+    gmp_types::{
+        self, CommonEventFields, ConstructProofTask, Event, Message, ReactToWasmEventTask,
+        VerifyTask,
+    },
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -43,6 +46,7 @@ pub enum QueryMsg {
 pub enum ExecuteMessage {
     VerifyMessages(Vec<XRPLUserMessage>), // TODO: can this be imported?
     RouteIncomingMessages(XRPLUserMessageWithPayload), // TODO: can this be imported?
+    ConstructProof { cc_id: String, payload: String },
 }
 
 pub struct XrplIngestor {
@@ -282,5 +286,29 @@ impl XrplIngestor {
                 event_name
             ))),
         }
+    }
+
+    pub async fn handle_construct_proof(
+        &self,
+        task: ConstructProofTask,
+    ) -> Result<(), IngestorError> {
+        let message = ExecuteMessage::ConstructProof {
+            cc_id: task.task.cc_id,
+            payload: task.task.payload,
+        };
+
+        Ok(self
+            .gmp_api
+            .post_broadcast(
+                "".to_owned(),
+                serde_json::to_string(&message).unwrap().as_bytes(),
+            )
+            .await
+            .map_err(|e| {
+                IngestorError::GenericError(format!(
+                    "Failed to broadcast message: {}",
+                    e.to_string()
+                ))
+            })?)
     }
 }
