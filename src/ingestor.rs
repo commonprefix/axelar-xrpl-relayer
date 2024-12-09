@@ -136,7 +136,11 @@ impl Ingestor {
         match task {
             Task::Verify(verify_task) => self.xrpl_ingestor.handle_verify(verify_task).await,
             Task::ConstructProof(construct_proof_task) => todo!(),
-            Task::ReactToWasmEvent(react_to_wasm_event_task) => todo!(),
+            Task::ReactToWasmEvent(react_to_wasm_event_task) => {
+                self.xrpl_ingestor
+                    .handle_wasm_event(react_to_wasm_event_task)
+                    .await
+            }
             _ => Err(IngestorError::IrrelevantTask),
         }
     }

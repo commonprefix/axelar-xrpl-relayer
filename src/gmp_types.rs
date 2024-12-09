@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::xrpl_ingestor::XRPLUserMessage;
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct RouterMessage {
     // TODO: can this be imported?
@@ -97,7 +99,9 @@ pub struct ConstructProofTask {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct ReactToWasmEventTaskFields {
-    pub todo: String, // TODO
+    // TODO: finalize fields
+    pub event_name: String,
+    pub message: XRPLUserMessage,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]

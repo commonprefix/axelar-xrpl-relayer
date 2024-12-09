@@ -7,7 +7,7 @@ use xrpl_api::{PaymentTransaction, Transaction};
 use crate::{
     error::IngestorError,
     gmp_api::GmpApi,
-    gmp_types::{self, CommonEventFields, Event, Message, VerifyTask},
+    gmp_types::{self, CommonEventFields, Event, Message, ReactToWasmEventTask, VerifyTask},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -17,7 +17,7 @@ pub enum XRPLMessage {
     UserMessage(XRPLUserMessage),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct XRPLUserMessage {
     // TODO: can this be imported?
     tx_id: String,
@@ -28,6 +28,12 @@ pub struct XRPLUserMessage {
     amount: String,
 }
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct XRPLUserMessageWithPayload {
+    message: XRPLUserMessage,
+    payload: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub enum QueryMsg {
     GetITSMessage(XRPLUserMessage), // TODO: can this be imported?
@@ -36,6 +42,7 @@ pub enum QueryMsg {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ExecuteMessage {
     VerifyMessages(Vec<XRPLUserMessage>), // TODO: can this be imported?
+    RouteIncomingMessages(XRPLUserMessageWithPayload), // TODO: can this be imported?
 }
 
 pub struct XrplIngestor {
@@ -242,5 +249,38 @@ impl XrplIngestor {
                     e.to_string()
                 ))
             })?)
+    }
+
+    pub async fn handle_wasm_event(&self, task: ReactToWasmEventTask) -> Result<(), IngestorError> {
+        let event_name = task.task.event_name.clone();
+
+        match task.task.event_name.as_str() {
+            "wasm-quorum-reached" => {
+                // TODO: handle prover messages
+                let user_message = task.task.message.clone();
+
+                let message = ExecuteMessage::RouteIncomingMessages(XRPLUserMessageWithPayload {
+                    message: user_message,
+                    payload: None,
+                });
+                Ok(self
+                    .gmp_api
+                    .post_broadcast(
+                        "".to_owned(),
+                        serde_json::to_string(&message).unwrap().as_bytes(),
+                    )
+                    .await
+                    .map_err(|e| {
+                        IngestorError::GenericError(format!(
+                            "Failed to broadcast message: {}",
+                            e.to_string()
+                        ))
+                    })?)
+            }
+            _ => Err(IngestorError::GenericError(format!(
+                "Unknown event name: {}",
+                event_name
+            ))),
+        }
     }
 }
