@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -69,7 +71,9 @@ pub struct GatewayTxTask {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct VerifyTaskFields {
-    pub todo: String, // TODO
+    // TODO: finalize fields
+    pub message: Message,
+    pub meta: Option<Metadata>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -136,13 +140,15 @@ pub struct CommonEventFields {
     pub event_id: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Metadata {
     #[serde(rename = "txID")]
-    pub tx_id: String,
+    pub tx_id: Option<String>,
     #[serde(rename = "fromAddress")]
-    pub from_address: String,
-    pub finalized: bool,
+    pub from_address: Option<String>,
+    pub finalized: Option<bool>,
+    #[serde(rename = "sourceContext")]
+    pub source_context: Option<HashMap<String, String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
