@@ -1,5 +1,5 @@
 use core::str;
-use std::{collections::HashMap, sync::Arc};
+use std::{sync::Arc};
 
 use serde::{Deserialize, Serialize};
 use xrpl_api::{PaymentTransaction, Transaction};
@@ -7,7 +7,7 @@ use xrpl_api::{PaymentTransaction, Transaction};
 use crate::{
     error::IngestorError,
     gmp_api::GmpApi,
-    gmp_types::{self, CommonEventFields, Event, Message, Metadata, RouterMessage, VerifyTask},
+    gmp_types::{self, CommonEventFields, Event, Message, VerifyTask},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -131,51 +131,41 @@ impl XrplIngestor {
                 .unwrap(), // TODO: Assumption: the actual amount to be wrapped is in the third memo as a string (drops)
         };
 
-        let query = QueryMsg::GetITSMessage(xrpl_user_message.clone());
-        let its_hub_message: RouterMessage = serde_json::from_str(
-            &self
-                .gmp_api
-                .post_query(
-                    "".to_owned(),
-                    serde_json::to_string(&query).unwrap().as_bytes(),
-                )
-                .await
-                .map_err(|e| {
-                    IngestorError::GenericError(format!(
-                        "Failed to translate XRPL User Message to ITS Message: {}",
-                        e.to_string()
-                    ))
-                })?,
-        )
-        .map_err(|e| {
-            IngestorError::GenericError(format!("Failed to parse ITS Message: {}", e.to_string()))
-        })?;
+        // let query = QueryMsg::GetITSMessage(xrpl_user_message.clone());
+        // let its_hub_message: RouterMessage = serde_json::from_str(
+        //     &self
+        //         .gmp_api
+        //         .post_query(
+        //             "".to_owned(),
+        //             serde_json::to_string(&query).unwrap().as_bytes(),
+        //         )
+        //         .await
+        //         .map_err(|e| {
+        //             IngestorError::GenericError(format!(
+        //                 "Failed to translate XRPL User Message to ITS Message: {}",
+        //                 e.to_string()
+        //             ))
+        //         })?,
+        // )
+        // .map_err(|e| {
+        //     IngestorError::GenericError(format!("Failed to parse ITS Message: {}", e.to_string()))
+        // })?;
 
-        let mut source_context = HashMap::new();
-        source_context.insert(
-            "user_message".to_owned(),
-            serde_json::to_string(&xrpl_user_message).unwrap(),
-        ); // TODO: is that what we want to store here?
         Ok(Event::Call {
             common: CommonEventFields {
                 r#type: "CALL".to_owned(),
-                event_id: format!("{}-0", tx_hash), // TODO: should the log index be 0?
+                event_id: tx_hash.clone(),
             },
             message: Message {
-                message_id: its_hub_message.cc_id,
+                message_id: tx_hash,
                 source_chain: "xrpl".to_owned(),
-                source_address: its_hub_message.source_address,
-                destination_address: its_hub_message.destination_address,
-                payload_hash: its_hub_message.payload_hash,
+                source_address: xrpl_user_message.source_address,
+                destination_address: xrpl_user_message.destination_address,
+                payload_hash: xrpl_user_message.payload_hash,
             },
-            destination_chain: its_hub_message.destination_chain,
+            destination_chain: xrpl_user_message.destination_chain,
             payload: "".to_owned(), // TODO
-            meta: Some(Metadata {
-                tx_id: None,
-                from_address: None,
-                finalized: None,
-                source_context: Some(source_context),
-            }),
+            meta: None,
         })
     }
 
