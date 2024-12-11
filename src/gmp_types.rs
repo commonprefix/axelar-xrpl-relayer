@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::xrpl_ingestor::XRPLUserMessage;
 
@@ -39,6 +40,7 @@ pub struct Amount {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct CommonTaskFields {
     pub id: String,
+    pub chain: String,
     pub timestamp: String,
     pub r#type: String,
     pub meta: Option<Metadata>,
@@ -153,7 +155,7 @@ pub struct Metadata {
     pub from_address: Option<String>,
     pub finalized: Option<bool>,
     #[serde(rename = "sourceContext")]
-    pub source_context: Option<HashMap<String, String>>,
+    pub source_context: Option<HashMap<String, XRPLUserMessage>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -215,4 +217,9 @@ pub struct PostEventResponse {
 #[derive(Serialize, Deserialize, Debug, Default)]
 struct EventMessage {
     pub events: Vec<Event>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum BroadcastRequest {
+    Generic(Value),
 }

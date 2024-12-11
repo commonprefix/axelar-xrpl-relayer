@@ -1,14 +1,15 @@
 use async_stream::stream;
+use core::str;
 use futures::Stream;
 use serde_json::Value;
 use std::{collections::HashMap, pin::Pin, time::Duration};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use reqwest::Client;
 
 use crate::{
     error::GmpApiError,
-    gmp_types::{Event, PostEventResponse, PostEventResult, Task},
+    gmp_types::{BroadcastRequest, Event, PostEventResponse, PostEventResult, Task},
     utils::parse_task,
 };
 
@@ -37,13 +38,15 @@ impl GmpApi {
     }
 
     pub async fn get_tasks_action(&self) -> Result<Vec<Task>, GmpApiError> {
+        let request_url = format!("{}/chains/{}/tasks", self.rpc_url, self.chain);
         let res = self
             .client
-            .get(&format!("{}/chains/{}/tasks", self.rpc_url, self.chain))
+            .get(&request_url)
             .send()
             .await
             .map_err(|e| GmpApiError::RequestFailed(e.to_string()))?;
 
+        debug!("Headers from {}: {:?}", request_url, res);
         res.error_for_status_ref()
             .map_err(|e| GmpApiError::ErrorResponse(e.to_string()))?;
 
@@ -51,6 +54,7 @@ impl GmpApi {
             .json()
             .await
             .map_err(|e| GmpApiError::InvalidResponse(e.to_string()))?;
+        debug!("Response from {}: {:?}", request_url, response);
 
         let tasks_json = response
             .get("tasks")
@@ -118,15 +122,19 @@ impl GmpApi {
     pub async fn post_broadcast(
         &self,
         contract_address: String,
-        payload: &[u8],
+        data: &BroadcastRequest,
     ) -> Result<(), GmpApiError> {
+        let payload = match data {
+            BroadcastRequest::Generic(value) => value,
+        };
+
         let res = self
             .client
             .post(&format!(
                 "{}/contracts/{}/broadcasts",
                 self.rpc_url, contract_address
             ))
-            .body(payload.to_vec())
+            .json(&payload)
             .send()
             .await
             .map_err(|e| GmpApiError::RequestFailed(e.to_string()))?;
