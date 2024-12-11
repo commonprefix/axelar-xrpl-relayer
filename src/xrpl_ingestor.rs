@@ -8,8 +8,8 @@ use crate::{
     error::IngestorError,
     gmp_api::GmpApi,
     gmp_types::{
-        self, CommonEventFields, ConstructProofTask, Event, GatewayV2Message, ReactToWasmEventTask,
-        VerifyTask,
+        self, BroadcastRequest, CommonEventFields, ConstructProofTask, Event, GatewayV2Message,
+        ReactToWasmEventTask, VerifyTask,
     },
 };
 
@@ -220,12 +220,11 @@ impl XrplIngestor {
                 "Verify task missing source_context field".to_owned(),
             ))?;
 
-        let user_message: XRPLUserMessage =
-            serde_json::from_str(source_context.get(&"user_message".to_owned()).ok_or(
-                IngestorError::GenericError(
-                    "Verify task missing user_message in source_context".to_owned(),
-                ),
-            )?)
+        let user_message: &XRPLUserMessage = source_context
+            .get(&"user_message".to_owned())
+            .ok_or(IngestorError::GenericError(
+                "Verify task missing user_message in source_context".to_owned(),
+            ))
             .map_err(|e| {
                 IngestorError::GenericError(format!(
                     "Failed to parse source context to XRPL User Message: {}",
@@ -233,13 +232,11 @@ impl XrplIngestor {
                 ))
             })?;
 
-        let message = ExecuteMessage::VerifyMessages(vec![user_message]);
+        let message = ExecuteMessage::VerifyMessages(vec![user_message.clone()]);
+        let request = BroadcastRequest::Generic(serde_json::to_value(&message).unwrap());
         Ok(self
             .gmp_api
-            .post_broadcast(
-                "".to_owned(),
-                serde_json::to_string(&message).unwrap().as_bytes(),
-            )
+            .post_broadcast("contract".to_owned(), &request)
             .await
             .map_err(|e| {
                 IngestorError::GenericError(format!(
@@ -261,12 +258,10 @@ impl XrplIngestor {
                     message: user_message,
                     payload: None, // TODO
                 });
+                let request = BroadcastRequest::Generic(serde_json::to_value(&message).unwrap());
                 Ok(self
                     .gmp_api
-                    .post_broadcast(
-                        "".to_owned(),
-                        serde_json::to_string(&message).unwrap().as_bytes(),
-                    )
+                    .post_broadcast("".to_owned(), &request)
                     .await
                     .map_err(|e| {
                         IngestorError::GenericError(format!(
@@ -294,12 +289,10 @@ impl XrplIngestor {
             payload: task.task.payload,
         };
 
+        let request = BroadcastRequest::Generic(serde_json::to_value(&message).unwrap());
         Ok(self
             .gmp_api
-            .post_broadcast(
-                "".to_owned(),
-                serde_json::to_string(&message).unwrap().as_bytes(),
-            )
+            .post_broadcast("contract".to_owned(), &request)
             .await
             .map_err(|e| {
                 IngestorError::GenericError(format!(
