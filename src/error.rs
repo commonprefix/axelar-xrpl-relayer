@@ -50,6 +50,8 @@ pub enum GmpApiError {
     ErrorResponse(String),
     #[error("Failed to parse response from GMP API: {0}")]
     InvalidResponse(String),
+    #[error("Invalid Request: {0}")]
+    InvalidRequest(String),
 }
 
 #[derive(Error, Debug)]
