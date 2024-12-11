@@ -15,7 +15,7 @@ pub struct RouterMessage {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct Message {
+pub struct GatewayV2Message {
     // TODO: can this be imported?
     #[serde(rename = "messageID")]
     pub message_id: String,
@@ -41,11 +41,12 @@ pub struct CommonTaskFields {
     pub id: String,
     pub timestamp: String,
     pub r#type: String,
+    pub meta: Option<Metadata>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct ExecuteTaskFields {
-    pub message: Message,
+    pub message: GatewayV2Message,
     pub payload: String,
     #[serde(rename = "availableGasBalance")]
     pub available_gas_balance: Amount,
@@ -73,9 +74,8 @@ pub struct GatewayTxTask {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct VerifyTaskFields {
-    // TODO: finalize fields
-    pub message: Message,
-    pub meta: Option<Metadata>,
+    pub message: GatewayV2Message,
+    pub payload: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -87,9 +87,8 @@ pub struct VerifyTask {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct ConstructProofTaskFields {
-    // TODO: finalize fields
-    pub cc_id: String,
-    pub payload: String
+    pub message: GatewayV2Message,
+    pub payload: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -115,7 +114,7 @@ pub struct ReactToWasmEventTask {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct RefundTaskFields {
-    pub message: Message,
+    pub message: GatewayV2Message,
     #[serde(rename = "refundRecipientAddress")]
     pub refund_recipient_address: String,
     #[serde(rename = "remainingGasBalance")]
@@ -163,7 +162,7 @@ pub enum Event {
     Call {
         #[serde(flatten)]
         common: CommonEventFields,
-        message: Message,
+        message: GatewayV2Message,
         #[serde(rename = "destinationChain")]
         destination_chain: String,
         payload: String,

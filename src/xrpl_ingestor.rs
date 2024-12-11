@@ -8,7 +8,7 @@ use crate::{
     error::IngestorError,
     gmp_api::GmpApi,
     gmp_types::{
-        self, CommonEventFields, ConstructProofTask, Event, Message, ReactToWasmEventTask,
+        self, CommonEventFields, ConstructProofTask, Event, GatewayV2Message, ReactToWasmEventTask,
         VerifyTask,
     },
 };
@@ -143,7 +143,7 @@ impl XrplIngestor {
         };
 
         let query = QueryMsg::GetITSMessage(xrpl_user_message.clone());
-        let its_hub_message: Message = serde_json::from_str(
+        let its_hub_message: GatewayV2Message = serde_json::from_str(
             &self
                 .gmp_api
                 .post_query(
@@ -210,7 +210,7 @@ impl XrplIngestor {
 
     pub async fn handle_verify(&self, task: VerifyTask) -> Result<(), IngestorError> {
         let source_context = task
-            .task
+            .common
             .meta
             .ok_or(IngestorError::GenericError(
                 "Verify task missing meta field".to_owned(),
@@ -259,7 +259,7 @@ impl XrplIngestor {
 
                 let message = ExecuteMessage::RouteIncomingMessages(XRPLUserMessageWithPayload {
                     message: user_message,
-                    payload: None,
+                    payload: None, // TODO
                 });
                 Ok(self
                     .gmp_api
@@ -287,7 +287,10 @@ impl XrplIngestor {
         task: ConstructProofTask,
     ) -> Result<(), IngestorError> {
         let message = ExecuteMessage::ConstructProof {
-            cc_id: task.task.cc_id,
+            cc_id: format!(
+                "{}:{}",
+                task.task.message.source_chain, task.task.message.message_id
+            ), // TODO: Import CrossChainID from amplifier
             payload: task.task.payload,
         };
 
