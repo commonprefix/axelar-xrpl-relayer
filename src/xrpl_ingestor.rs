@@ -142,38 +142,32 @@ impl XrplIngestor {
                 .unwrap(), // TODO: Assumption: the actual amount to be wrapped is in the third memo as a string (drops)
         };
 
-        // let query = QueryMsg::GetITSMessage(xrpl_user_message.clone());
-        // let its_hub_message: RouterMessage = serde_json::from_str(
-        //     &self
-        //         .gmp_api
-        //         .post_query(
-        //             "".to_owned(),
-        //             serde_json::to_string(&query).unwrap().as_bytes(),
-        //         )
-        //         .await
-        //         .map_err(|e| {
-        //             IngestorError::GenericError(format!(
-        //                 "Failed to translate XRPL User Message to ITS Message: {}",
-        //                 e.to_string()
-        //             ))
-        //         })?,
-        // )
-        // .map_err(|e| {
-        //     IngestorError::GenericError(format!("Failed to parse ITS Message: {}", e.to_string()))
-        // })?;
+        let query = QueryMsg::GetITSMessage(xrpl_user_message.clone());
+        let its_hub_message: Message = serde_json::from_str(
+            &self
+                .gmp_api
+                .post_query(
+                    "".to_owned(),
+                    serde_json::to_string(&query).unwrap().as_bytes(),
+                )
+                .await
+                .map_err(|e| {
+                    IngestorError::GenericError(format!(
+                        "Failed to translate XRPL User Message to ITS Message: {}",
+                        e.to_string()
+                    ))
+                })?,
+        )
+        .map_err(|e| {
+            IngestorError::GenericError(format!("Failed to parse ITS Message: {}", e.to_string()))
+        })?;
 
         Ok(Event::Call {
             common: CommonEventFields {
                 r#type: "CALL".to_owned(),
                 event_id: tx_hash.clone(),
             },
-            message: Message {
-                message_id: tx_hash,
-                source_chain: "xrpl".to_owned(),
-                source_address: xrpl_user_message.source_address,
-                destination_address: xrpl_user_message.destination_address,
-                payload_hash: xrpl_user_message.payload_hash,
-            },
+            message: its_hub_message,
             destination_chain: xrpl_user_message.destination_chain,
             payload: "".to_owned(), // TODO
             meta: None,
@@ -204,7 +198,7 @@ impl XrplIngestor {
                 r#type: "GAS_CREDIT".to_owned(),
                 event_id: tx_hash.clone(),
             },
-            message_id: tx_hash,
+            message_id: tx_hash, // TODO: Should this be the its hub message id?
             refund_address: payment.common.account.clone(),
             payment: gmp_types::Amount {
                 token_id: None, // TODO: should this be None when referring to Drops?
