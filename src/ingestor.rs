@@ -36,7 +36,15 @@ impl Ingestor {
         match consumer.next().await {
             Some(Ok(delivery)) => {
                 if let Err(e) = self.process_delivery(&delivery.data).await {
-                    warn!("Error consuming message: {:?}", e);
+                    match e {
+                        IngestorError::IrrelevantTask => {
+                            debug!("Skipping irrelevant task");
+                        }
+                        _ => {
+                            error!("Failed to consume delivery: {:?}", e);
+                        }
+                    }
+
                     if let Err(nack_err) = delivery
                         .nack(BasicNackOptions {
                             multiple: false,
