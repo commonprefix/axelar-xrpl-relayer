@@ -9,7 +9,7 @@ use reqwest::Client;
 
 use crate::{
     error::GmpApiError,
-    gmp_types::{BroadcastRequest, Event, PostEventResponse, PostEventResult, Task},
+    gmp_types::{BroadcastRequest, Event, PostEventResponse, PostEventResult, QueryRequest, Task},
     utils::parse_task,
 };
 
@@ -155,15 +155,19 @@ impl GmpApi {
     pub async fn post_query(
         &self,
         contract_address: String,
-        payload: &[u8],
+        data: &QueryRequest,
     ) -> Result<String, GmpApiError> {
+        let payload = match data {
+            QueryRequest::Generic(value) => value,
+        };
+
         let res = self
             .client
             .post(&format!(
                 "{}/contracts/{}/queries",
                 self.rpc_url, contract_address
             ))
-            .body(payload.to_vec())
+            .json(&payload)
             .send()
             .await
             .map_err(|e| GmpApiError::RequestFailed(e.to_string()))?;
@@ -174,7 +178,7 @@ impl GmpApi {
                     .text()
                     .await
                     .map_err(|e| GmpApiError::InvalidResponse(e.to_string()))?;
-                info!("Response from query broadcast: {:?}", response);
+                debug!("Response from query broadcast: {:?}", response);
                 Ok(response)
             }
             Err(e) => Err(GmpApiError::ErrorResponse(e.to_string())),

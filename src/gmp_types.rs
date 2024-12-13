@@ -223,3 +223,8 @@ struct EventMessage {
 pub enum BroadcastRequest {
     Generic(Value),
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum QueryRequest {
+    Generic(Value),
+}
