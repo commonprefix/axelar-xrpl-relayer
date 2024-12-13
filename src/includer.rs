@@ -6,7 +6,7 @@ use lapin::{
     Consumer,
 };
 use tokio::sync::watch;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use crate::{
     error::{BroadcasterError, IncluderError, RefundManagerError},
@@ -57,9 +57,20 @@ where
                             delivery.ack(BasicAckOptions::default()).await.expect("ack");
                         }
                         Err(e) => {
-                            error!("Failed to consume delivery: {:?}", e);
+                            match e {
+                                IncluderError::IrrelevantTask => {
+                                    debug!("Skipping irrelevant task");
+                                }
+                                _ => {
+                                    error!("Failed to consume delivery: {:?}", e);
+                                }
+                            }
+
                             delivery
-                                .nack(BasicNackOptions::default())
+                                .nack(BasicNackOptions {
+                                    multiple: false,
+                                    requeue: true,
+                                })
                                 .await
                                 .expect("nack");
                         }
@@ -88,15 +99,14 @@ where
     }
 
     pub async fn consume(&self, task: QueueItem) -> Result<(), IncluderError> {
+        info!("Consuming task: {:?}", task);
         match task {
             QueueItem::Task(task) => match task {
                 Task::GatewayTx(gateway_tx_task) => {
-                    let res = self
-                        .broadcaster
+                    self.broadcaster
                         .broadcast(gateway_tx_task.task.execute_data)
                         .await
-                        .unwrap();
-                    println!("{:?}", res);
+                        .map_err(|e| IncluderError::ConsumerError(e.to_string()))?;
                     Ok(())
                 }
                 Task::Refund(refund_task) => {
@@ -107,9 +117,11 @@ where
                             refund_task.task.remaining_gas_balance.amount, // TODO: check if this is correct
                         )
                         .await
-                        .unwrap();
-                    let res = self.broadcaster.broadcast(tx_blob).await.unwrap();
-                    println!("{:?}", res);
+                        .map_err(|e| IncluderError::ConsumerError(e.to_string()))?;
+                    self.broadcaster
+                        .broadcast(tx_blob)
+                        .await
+                        .map_err(|e| IncluderError::ConsumerError(e.to_string()))?;
                     Ok(())
                 }
                 _ => Err(IncluderError::IrrelevantTask),
