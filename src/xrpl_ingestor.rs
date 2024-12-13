@@ -9,7 +9,7 @@ use crate::{
     gmp_api::GmpApi,
     gmp_types::{
         self, BroadcastRequest, CommonEventFields, ConstructProofTask, Event, GatewayV2Message,
-        ReactToWasmEventTask, VerifyTask,
+        QueryRequest, ReactToWasmEventTask, VerifyTask,
     },
 };
 
@@ -136,20 +136,26 @@ impl XrplIngestor {
                 .memo_data
                 .clone()
                 .unwrap(),
-            amount: payment.common.memos.clone().unwrap()[3]
-                .memo_data
-                .clone()
-                .unwrap(), // TODO: Assumption: the actual amount to be wrapped is in the third memo as a string (drops)
+            amount: str::from_utf8(
+                hex::decode(
+                    payment.common.memos.clone().unwrap()[3]
+                        .memo_data
+                        .clone()
+                        .unwrap(),
+                )
+                .unwrap()
+                .as_slice(),
+            )
+            .unwrap()
+            .to_string(), // TODO: Assumption: the actual amount to be wrapped is in the third memo as a string (drops)
         };
 
         let query = QueryMsg::GetITSMessage(xrpl_user_message.clone());
+        let request = QueryRequest::Generic(serde_json::to_value(&query).unwrap());
         let its_hub_message: GatewayV2Message = serde_json::from_str(
             &self
                 .gmp_api
-                .post_query(
-                    "".to_owned(),
-                    serde_json::to_string(&query).unwrap().as_bytes(),
-                )
+                .post_query("contract".to_owned(), &request)
                 .await
                 .map_err(|e| {
                     IngestorError::GenericError(format!(
@@ -186,12 +192,20 @@ impl XrplIngestor {
                 "Payment transaction missing field 'hash'".to_owned(),
             ))?;
         let total_amount = payment.amount.size() as u64; // TODO: size should probably not be used
-        let deposit_amount = payment.common.memos.clone().unwrap()[3]
-            .memo_data
-            .clone()
+        let deposit_amount = str::from_utf8(
+            hex::decode(
+                payment.common.memos.clone().unwrap()[3]
+                    .memo_data
+                    .clone()
+                    .unwrap(),
+            )
             .unwrap()
-            .parse::<u64>()
-            .unwrap();
+            .as_slice(),
+        )
+        .unwrap()
+        .to_string()
+        .parse::<u64>()
+        .unwrap(); // TODO: should this be a u64?
         let gas_amount = total_amount - deposit_amount;
         Ok(Event::GasCredit {
             common: CommonEventFields {

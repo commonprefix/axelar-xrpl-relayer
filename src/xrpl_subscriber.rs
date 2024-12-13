@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use xrpl_api::AccountTransaction;
+use xrpl_api::{AccountTransaction, RequestPagination};
 use xrpl_types::AccountId;
 
 use crate::subscriber::TransactionPoller;
