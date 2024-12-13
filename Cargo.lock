@@ -358,6 +358,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+ "uuid",
  "xrpl_api",
  "xrpl_binary_codec",
  "xrpl_http_client",
