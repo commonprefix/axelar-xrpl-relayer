@@ -6,6 +6,7 @@ use lapin::{
 };
 use serde::{Deserialize, Serialize};
 use tracing::info;
+use uuid::Uuid;
 
 use crate::{gmp_types::Task, subscriber::ChainTransaction};
 
@@ -56,11 +57,13 @@ impl Queue {
     }
 
     pub async fn consumer(&self) -> Result<Consumer, anyhow::Error> {
+        let consumer_tag = format!("consumer_{}", Uuid::new_v4());
+
         Ok(self
             .channel
             .basic_consume(
                 self.queue.name().as_str(),
-                "my consumer",
+                &consumer_tag,
                 BasicConsumeOptions::default(),
                 FieldTable::default(),
             )
