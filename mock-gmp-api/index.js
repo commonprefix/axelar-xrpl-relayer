@@ -69,13 +69,42 @@ const tasks = [
     }
 ];
 
+let emitted_tasks = false;
 app.get('/chains/xrpl/tasks', (req, res) => {
+    if (emitted_tasks) {
+        res.json({ tasks: [] });
+        return;
+    }
+
+    emitted_tasks = true;
     res.json({ tasks });
 });
 
-app.post('/contracts/contract/broadcasts', (req, res) => {
-    console.log(req.body);
+app.post('/chains/xrpl/events', (req, res) => {
+    console.log("Received event: ");
+    console.log(
+        JSON.stringify(req.body, null, 2));
     res.status(404).send('Worked');
+});
+
+app.post('/contracts/contract/broadcasts', (req, res) => {
+    console.log("Received broadcast: ");
+    console.log(
+        JSON.stringify(req.body, null, 2));
+    res.status(404).send('Worked');
+});
+
+app.post('/contracts/contract/queries', (req, res) => {
+    console.log("Received query: ");
+    console.log(
+        JSON.stringify(req.body, null, 2));
+    res.json({
+        messageID: "msg-123",
+        sourceChain: "chainA",
+        sourceAddress: "0xSource123",
+        destinationAddress: "0xDest456",
+        payloadHash: "YWJjZDEyMzQ="
+    });
 });
 
 app.listen(port, () => {
