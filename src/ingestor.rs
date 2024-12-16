@@ -102,6 +102,7 @@ impl Ingestor {
     }
 
     pub async fn consume(&self, item: QueueItem) -> Result<(), IngestorError> {
+        info!("Consuming item: {:?}", item);
         match item {
             QueueItem::Task(task) => self.consume_task(task).await,
             QueueItem::Transaction(chain_transaction) => {
