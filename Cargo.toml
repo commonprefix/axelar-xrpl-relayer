@@ -21,6 +21,7 @@ xrpl_amplifier_types = { git = "https://github.com/commonprefix/axelar-amplifier
 xrpl_gateway = { git = "https://github.com/commonprefix/axelar-amplifier", branch = "xrpl", package = "xrpl-gateway" }
 xrpl_multisig_prover = { git = "https://github.com/commonprefix/axelar-amplifier", branch = "xrpl", package = "xrpl-multisig-prover" }
 router_api = { git = "https://github.com/commonprefix/axelar-amplifier", branch = "xrpl", package = "router-api" }
+multisig = { git = "https://github.com/commonprefix/axelar-amplifier", branch = "xrpl", package = "multisig" }
 hex = "0.4.3"
 reqwest = "0.12.9"
 thiserror = "2.0.3"
