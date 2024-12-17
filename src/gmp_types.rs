@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use xrpl_amplifier_types::msg::XRPLUserMessage;
+use xrpl_amplifier_types::msg::XRPLMessage;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct RouterMessage {
@@ -103,7 +103,7 @@ pub struct ConstructProofTask {
 pub struct ReactToWasmEventTaskFields {
     // TODO: finalize fields
     pub event_name: String,
-    pub message: XRPLUserMessage,
+    pub message: XRPLMessage,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -154,7 +154,7 @@ pub struct Metadata {
     pub from_address: Option<String>,
     pub finalized: Option<bool>,
     #[serde(rename = "sourceContext")]
-    pub source_context: Option<HashMap<String, XRPLUserMessage>>,
+    pub source_context: Option<HashMap<String, XRPLMessage>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
