@@ -1,10 +1,13 @@
 use core::str;
 use std::sync::Arc;
 
+use router_api::CrossChainId;
 use serde::{Deserialize, Serialize};
+use xrpl_amplifier_types::msg::{XRPLMessage, XRPLUserMessage, XRPLUserMessageWithPayload};
 use xrpl_api::{PaymentTransaction, Transaction};
 
 use crate::{
+    config::Config,
     error::IngestorError,
     gmp_api::GmpApi,
     gmp_types::{
@@ -14,51 +17,23 @@ use crate::{
 };
 
 #[derive(Debug, Serialize, Deserialize)]
-pub enum XRPLMessage {
-    // TODO: import
-    ProverMessage(String),
-    UserMessage(XRPLUserMessage),
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct XRPLUserMessage {
-    // TODO: can this be imported?
-    tx_id: String,
-    source_address: String,
-    destination_chain: String,
-    destination_address: String,
-    payload_hash: String,
-    amount: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct XRPLUserMessageWithPayload {
-    message: XRPLUserMessage,
-    payload: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 pub enum QueryMsg {
     GetITSMessage(XRPLUserMessage), // TODO: can this be imported?
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub enum ExecuteMessage {
-    VerifyMessages(Vec<XRPLUserMessage>), // TODO: can this be imported?
-    RouteIncomingMessages(XRPLUserMessageWithPayload), // TODO: can this be imported?
-    ConstructProof { cc_id: String, payload: String },
 }
 
 pub struct XrplIngestor {
     gmp_api: Arc<GmpApi>,
     multisig_address: String,
+    config: Config,
 }
 
 impl XrplIngestor {
     pub fn new(gmp_api: Arc<GmpApi>, multisig_address: String) -> Self {
+        let config = Config::from_env().map_err(|e| anyhow::anyhow!(e)).unwrap();
         Self {
             gmp_api,
             multisig_address,
+            config,
         }
     }
 
@@ -106,20 +81,21 @@ impl XrplIngestor {
                 "Payment transaction missing field 'hash'".to_owned(),
             ))?;
         let xrpl_user_message = XRPLUserMessage {
-            tx_id: tx_hash.clone(),
-            source_address: payment.common.account.clone(),
-            destination_address: str::from_utf8(
-                hex::decode(
-                    payment.common.memos.clone().unwrap()[0]
-                        .memo_data
-                        .clone()
-                        .unwrap(),
-                )
+            tx_id: hex::decode(tx_hash.clone())
                 .unwrap()
-                .as_slice(),
+                .as_slice()
+                .try_into()
+                .unwrap(),
+            source_address: payment.common.account.clone().try_into().unwrap(),
+            destination_address: hex::decode(
+                payment.common.memos.clone().unwrap()[0]
+                    .memo_data
+                    .clone()
+                    .unwrap(),
             )
             .unwrap()
-            .to_string(),
+            .try_into()
+            .unwrap(),
             destination_chain: str::from_utf8(
                 hex::decode(
                     payment.common.memos.clone().unwrap()[1]
@@ -131,23 +107,30 @@ impl XrplIngestor {
                 .as_slice(),
             )
             .unwrap()
-            .to_string(),
-            payload_hash: payment.common.memos.clone().unwrap()[2]
-                .memo_data
-                .clone()
-                .unwrap(),
-            amount: str::from_utf8(
-                hex::decode(
-                    payment.common.memos.clone().unwrap()[3]
-                        .memo_data
-                        .clone()
-                        .unwrap(),
+            .try_into()
+            .unwrap(),
+            payload_hash: hex::decode(
+                payment.common.memos.clone().unwrap()[2]
+                    .memo_data
+                    .clone()
+                    .unwrap(),
+            )
+            .unwrap().try_into().unwrap(),
+            amount: xrpl_amplifier_types::types::XRPLPaymentAmount::Drops(
+                str::from_utf8(
+                    hex::decode(
+                        payment.common.memos.clone().unwrap()[3]
+                            .memo_data
+                            .clone()
+                            .unwrap(),
+                    )
+                    .unwrap()
+                    .as_slice(),
                 )
                 .unwrap()
-                .as_slice(),
-            )
-            .unwrap()
-            .to_string(), // TODO: Assumption: the actual amount to be wrapped is in the third memo as a string (drops)
+                .parse::<u64>()
+                .unwrap(),
+            ), // TODO: Assumption: the actual amount to be wrapped is in the third memo as a string (drops)
         };
 
         let query = QueryMsg::GetITSMessage(xrpl_user_message.clone());
@@ -174,7 +157,7 @@ impl XrplIngestor {
                 event_id: tx_hash.clone(),
             },
             message: its_hub_message,
-            destination_chain: xrpl_user_message.destination_chain,
+            destination_chain: xrpl_user_message.destination_chain.to_string(),
             payload: "".to_owned(), // TODO
             meta: None,
         })
@@ -246,11 +229,14 @@ impl XrplIngestor {
                 ))
             })?;
 
-        let message = ExecuteMessage::VerifyMessages(vec![user_message.clone()]);
+        let message =
+            xrpl_gateway::msg::ExecuteMsg::VerifyMessages(vec![XRPLMessage::UserMessage(
+                user_message.clone(),
+            )]);
         let request = BroadcastRequest::Generic(serde_json::to_value(&message).unwrap());
         Ok(self
             .gmp_api
-            .post_broadcast("contract".to_owned(), &request)
+            .post_broadcast(self.config.xrpl_gateway.clone(), &request)
             .await
             .map_err(|e| {
                 IngestorError::GenericError(format!(
@@ -268,10 +254,12 @@ impl XrplIngestor {
                 // TODO: handle prover messages
                 let user_message = task.task.message.clone();
 
-                let message = ExecuteMessage::RouteIncomingMessages(XRPLUserMessageWithPayload {
-                    message: user_message,
-                    payload: None, // TODO
-                });
+                let message = xrpl_gateway::msg::ExecuteMsg::RouteIncomingMessages(vec![
+                    XRPLUserMessageWithPayload {
+                        message: user_message,
+                        payload: None, // TODO
+                    },
+                ]);
                 let request = BroadcastRequest::Generic(serde_json::to_value(&message).unwrap());
                 Ok(self
                     .gmp_api
@@ -295,12 +283,10 @@ impl XrplIngestor {
         &self,
         task: ConstructProofTask,
     ) -> Result<(), IngestorError> {
-        let message = ExecuteMessage::ConstructProof {
-            cc_id: format!(
-                "{}:{}",
-                task.task.message.source_chain, task.task.message.message_id
-            ), // TODO: Import CrossChainID from amplifier
-            payload: task.task.payload,
+        let message = xrpl_multisig_prover::msg::ExecuteMsg::ConstructProof {
+            cc_id: CrossChainId::new(task.task.message.source_chain, task.task.message.message_id)
+                .unwrap(),
+            payload: task.task.payload.as_bytes().try_into().unwrap(),
         };
 
         let request = BroadcastRequest::Generic(serde_json::to_value(&message).unwrap());

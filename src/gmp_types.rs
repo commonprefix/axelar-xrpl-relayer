@@ -2,8 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
-use crate::xrpl_ingestor::XRPLUserMessage;
+use xrpl_amplifier_types::msg::XRPLUserMessage;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct RouterMessage {
