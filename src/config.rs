@@ -10,7 +10,8 @@ pub struct Config {
     pub gmp_api_url: String,
     pub xrpl_rpc: String,
     pub multisig_address: String,
-    pub xrpl_gateway: String,
+    pub xrpl_gateway_address: String,
+    pub multisig_prover_address: String,
 }
 
 impl Config {
@@ -23,7 +24,10 @@ impl Config {
             gmp_api_url: env::var("GMP_API").context("Missing GMP_API")?,
             xrpl_rpc: env::var("XRPL_RPC").context("Missing XRPL_RPC")?,
             multisig_address: env::var("MULTISIG_ADDRESS").context("Missing MULTISIG_ADDRESS")?,
-            xrpl_gateway: env::var("XRPL_GATEWAY").context("Missing XRPL_GATEWAY")?,
+            xrpl_gateway_address: env::var("XRPL_GATEWAY_ADDRESS")
+                .context("Missing XRPL_GATEWAY_ADDRESS")?,
+            multisig_prover_address: env::var("MULTISIG_PROVER_ADDRESS")
+                .context("Missing MULTISIG_PROVER_ADDRESS")?,
         })
     }
 }
