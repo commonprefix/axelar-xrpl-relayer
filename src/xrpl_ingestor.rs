@@ -230,7 +230,7 @@ impl XrplIngestor {
         let its_hub_message: GatewayV2Message = serde_json::from_str(
             &self
                 .gmp_api
-                .post_query("contract".to_owned(), &request)
+                .post_query(self.config.xrpl_gateway_address.clone(), &request)
                 .await
                 .map_err(|e| {
                     IngestorError::GenericError(format!(
