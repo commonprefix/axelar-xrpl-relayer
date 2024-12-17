@@ -80,20 +80,6 @@ fn create_unsigned_tx_hash(payment: PaymentTransaction) -> Result<TxHash, Ingest
     Ok(hash_unsigned_tx(&tx).map_err(|e| {
         IngestorError::GenericError(format!("Failed to hash unsigned tx: {}", e.to_string()))
     })?)
-    // let tx_common = TransactionCommon {
-    //     account: payment.common.account,
-    //     fee: payment.common.fee,
-    //     sequence: payment.common.sequence,
-    //     ..Default::default()
-    // };
-    // let payment = PaymentTransaction {
-    //     common: tx_common,
-    //     amount: payment.amount,
-    //     destination: payment.destination,
-    //     ..Default::default()
-    // };
-    // let serialized = serde_json::to_vec(&payment).unwrap();
-    // Sha256::digest(serialized).to_vec()
 }
 
 impl XrplIngestor {
