@@ -1,10 +1,17 @@
 use core::str;
-use std::sync::Arc;
+use std::{sync::Arc, vec};
 
+use multisig::key::{KeyType, PublicKey};
 use router_api::CrossChainId;
 use serde::{Deserialize, Serialize};
-use xrpl_amplifier_types::msg::{XRPLMessage, XRPLUserMessage, XRPLUserMessageWithPayload};
-use xrpl_api::{PaymentTransaction, Transaction};
+use xrpl_amplifier_types::{
+    msg::{XRPLMessage, XRPLUserMessage, XRPLUserMessageWithPayload},
+    types::{
+        hash_unsigned_tx, TxHash, XRPLAccountId, XRPLCurrency, XRPLPaymentAmount, XRPLPaymentTx,
+        XRPLSequence, XRPLToken, XRPLUnsignedTx,
+    },
+};
+use xrpl_api::{PaymentTransaction, Transaction, TxRequest};
 
 use crate::{
     config::Config,
@@ -12,7 +19,7 @@ use crate::{
     gmp_api::GmpApi,
     gmp_types::{
         self, BroadcastRequest, CommonEventFields, ConstructProofTask, Event, GatewayV2Message,
-        QueryRequest, ReactToWasmEventTask, VerifyTask,
+        Metadata, QueryRequest, ReactToWasmEventTask, VerifyTask,
     },
 };
 
@@ -22,27 +29,108 @@ pub enum QueryMsg {
 }
 
 pub struct XrplIngestor {
+    client: xrpl_http_client::Client,
     gmp_api: Arc<GmpApi>,
     config: Config,
 }
 
+fn parse_message_from_context(metadata: Option<Metadata>) -> Result<XRPLMessage, IngestorError> {
+    let source_context = metadata
+        .ok_or(IngestorError::GenericError(
+            "Verify task missing meta field".to_owned(),
+        ))?
+        .source_context
+        .ok_or(IngestorError::GenericError(
+            "Verify task missing source_context field".to_owned(),
+        ))?;
+
+    Ok(source_context
+        .get(&"message".to_owned())
+        .ok_or(IngestorError::GenericError(
+            "Verify task missing user_message in source_context".to_owned(),
+        ))
+        .map_err(|e| {
+            IngestorError::GenericError(format!(
+                "Failed to parse source context to XRPL User Message: {}",
+                e.to_string()
+            ))
+        })?
+        .to_owned())
+}
+
+fn create_unsigned_tx_hash(payment: PaymentTransaction) -> Result<TxHash, IngestorError> {
+    let amount = match payment.amount {
+        xrpl_api::Amount::Issued(issued_amount) => XRPLPaymentAmount::Issued(
+            XRPLToken {
+                issuer: XRPLAccountId::new(issued_amount.issuer.as_bytes().try_into().unwrap()),
+                currency: XRPLCurrency::new(&issued_amount.currency).unwrap(),
+            },
+            issued_amount.value.try_into().unwrap(),
+        ),
+        xrpl_api::Amount::Drops(drops) => XRPLPaymentAmount::Drops(drops.parse::<u64>().unwrap()),
+    };
+    let tx = XRPLUnsignedTx::Payment(XRPLPaymentTx {
+        account: XRPLAccountId::new(payment.common.account.as_bytes().try_into().unwrap()),
+        fee: payment.common.fee.parse::<u64>().unwrap(),
+        sequence: XRPLSequence::Plain(payment.common.sequence),
+        amount,
+        destination: XRPLAccountId::new(payment.destination.as_bytes().try_into().unwrap()),
+        cross_currency: None, // TODO
+    });
+    Ok(hash_unsigned_tx(&tx).map_err(|e| {
+        IngestorError::GenericError(format!("Failed to hash unsigned tx: {}", e.to_string()))
+    })?)
+    // let tx_common = TransactionCommon {
+    //     account: payment.common.account,
+    //     fee: payment.common.fee,
+    //     sequence: payment.common.sequence,
+    //     ..Default::default()
+    // };
+    // let payment = PaymentTransaction {
+    //     common: tx_common,
+    //     amount: payment.amount,
+    //     destination: payment.destination,
+    //     ..Default::default()
+    // };
+    // let serialized = serde_json::to_vec(&payment).unwrap();
+    // Sha256::digest(serialized).to_vec()
+}
+
 impl XrplIngestor {
     pub fn new(gmp_api: Arc<GmpApi>, config: Config) -> Self {
-        Self { gmp_api, config }
+        let client = xrpl_http_client::Client::builder()
+            .base_url(&config.xrpl_rpc)
+            .build();
+        Self {
+            gmp_api,
+            config,
+            client,
+        }
     }
 
     pub async fn handle_transaction(&self, tx: Transaction) -> Result<Vec<Event>, IngestorError> {
         match tx {
-            Transaction::Payment(payment) => self.handle_payment(payment).await,
+            Transaction::Payment(payment) => {
+                if payment.destination == self.config.multisig_address {
+                    self.handle_payment(payment).await
+                } else if payment.common.account == self.config.multisig_address {
+                    // prover message
+                    self.handle_prover_tx(payment).await
+                } else {
+                    Err(IngestorError::UnsupportedTransaction(
+                        serde_json::to_string(&payment).unwrap(),
+                    ))
+                }
+            }
             Transaction::TrustSet(_) => {
                 Err(IngestorError::UnsupportedTransaction("TrustSet".to_owned()))
             }
-            Transaction::SignerListSet(_) => {
-                Err(IngestorError::UnsupportedTransaction("TrustSet".to_owned()))
-            }
-            Transaction::TicketCreate(_) => {
-                Err(IngestorError::UnsupportedTransaction("TrustSet".to_owned()))
-            }
+            Transaction::SignerListSet(_) => Err(IngestorError::UnsupportedTransaction(
+                "SignerListSet".to_owned(),
+            )),
+            Transaction::TicketCreate(_) => Err(IngestorError::UnsupportedTransaction(
+                "TicketCreate".to_owned(),
+            )),
             tx => Err(IngestorError::UnsupportedTransaction(
                 serde_json::to_string(&tx).unwrap(),
             )),
@@ -53,14 +141,36 @@ impl XrplIngestor {
         &self,
         payment: PaymentTransaction,
     ) -> Result<Vec<Event>, IngestorError> {
-        if payment.destination != self.config.multisig_address {
-            return Ok(Vec::new());
-        }
-
         let call_event = self.call_event_from_payment(&payment).await?;
         let gas_credit_event = self.gas_credit_event_from_payment(&payment).await?;
 
         return Ok(vec![call_event, gas_credit_event]);
+    }
+
+    pub async fn handle_prover_tx(
+        &self,
+        payment: PaymentTransaction,
+    ) -> Result<Vec<Event>, IngestorError> {
+        let execute_msg =
+            xrpl_gateway::msg::ExecuteMsg::VerifyMessages(vec![XRPLMessage::ProverMessage(
+                hex::decode(payment.common.hash.unwrap())
+                    .unwrap()
+                    .as_slice()
+                    .try_into()
+                    .unwrap(),
+            )]);
+        let request = BroadcastRequest::Generic(serde_json::to_value(&execute_msg).unwrap());
+        self.gmp_api
+            .post_broadcast(self.config.xrpl_gateway_address.clone(), &request)
+            .await
+            .map_err(|e| {
+                IngestorError::GenericError(format!(
+                    "Failed to broadcast message: {}",
+                    e.to_string()
+                ))
+            })?;
+
+        Ok(vec![])
     }
 
     async fn call_event_from_payment(
@@ -202,37 +312,24 @@ impl XrplIngestor {
     }
 
     pub async fn handle_verify(&self, task: VerifyTask) -> Result<(), IngestorError> {
-        let source_context = task
-            .common
-            .meta
-            .ok_or(IngestorError::GenericError(
-                "Verify task missing meta field".to_owned(),
-            ))?
-            .source_context
-            .ok_or(IngestorError::GenericError(
-                "Verify task missing source_context field".to_owned(),
-            ))?;
-
-        let user_message: &XRPLUserMessage = source_context
-            .get(&"user_message".to_owned())
-            .ok_or(IngestorError::GenericError(
-                "Verify task missing user_message in source_context".to_owned(),
-            ))
-            .map_err(|e| {
-                IngestorError::GenericError(format!(
-                    "Failed to parse source context to XRPL User Message: {}",
-                    e.to_string()
+        let xrpl_message = parse_message_from_context(task.common.meta)?;
+        let user_message = match xrpl_message {
+            XRPLMessage::UserMessage(user_message) => user_message,
+            _ => {
+                return Err(IngestorError::GenericError(
+                    "Verify task message is not a UserMessage".to_owned(),
                 ))
-            })?;
+            }
+        };
 
-        let message =
+        let execute_msg =
             xrpl_gateway::msg::ExecuteMsg::VerifyMessages(vec![XRPLMessage::UserMessage(
                 user_message.clone(),
             )]);
-        let request = BroadcastRequest::Generic(serde_json::to_value(&message).unwrap());
+        let request = BroadcastRequest::Generic(serde_json::to_value(&execute_msg).unwrap());
         Ok(self
             .gmp_api
-            .post_broadcast(self.config.xrpl_gateway.clone(), &request)
+            .post_broadcast(self.config.xrpl_gateway_address.clone(), &request)
             .await
             .map_err(|e| {
                 IngestorError::GenericError(format!(
@@ -242,24 +339,80 @@ impl XrplIngestor {
             })?)
     }
 
+    pub async fn prover_tx_routing_request(
+        &self,
+        tx_hash: TxHash,
+    ) -> Result<(String, BroadcastRequest), IngestorError> {
+        let tx_request = TxRequest::new(&tx_hash.to_string()).binary(false);
+        let res = self.client.call(tx_request).await.map_err(|e| {
+            IngestorError::GenericError(format!("Failed to get transaction: {}", e.to_string()))
+        })?;
+        match res.tx {
+            Transaction::Payment(payment_transaction) => {
+                let signers = payment_transaction.common.signers.clone().ok_or(
+                    IngestorError::GenericError("Payment transaction missing signers".to_owned()),
+                )?;
+                let signers_keys = signers
+                    .iter()
+                    .map(|signer| {
+                        let key_type = KeyType::Ecdsa;
+                        let public_key: PublicKey =
+                            serde_json::from_str(&signer.signing_pub_key).unwrap();
+                        public_key
+                    })
+                    .collect();
+
+                let unsigned_tx_hash = create_unsigned_tx_hash(payment_transaction.clone())?;
+                let execute_msg = xrpl_multisig_prover::msg::ExecuteMsg::ConfirmTxStatus {
+                    signer_public_keys: signers_keys,
+                    tx_id: unsigned_tx_hash,
+                    multisig_session_id: "0".try_into().unwrap(),
+                };
+                let request =
+                    BroadcastRequest::Generic(serde_json::to_value(&execute_msg).unwrap());
+                Ok((self.config.multisig_address.clone(), request))
+            }
+            Transaction::SignerListSet(_) => todo!(),
+            Transaction::TicketCreate(_) => todo!(),
+            Transaction::TrustSet(_) => todo!(),
+            _ => Err(IngestorError::UnsupportedTransaction(
+                "Unsupported transaction type".to_owned(),
+            )),
+        }
+    }
+
+    pub fn user_message_routing_request(
+        &self,
+        user_message: XRPLUserMessage,
+    ) -> Result<(String, BroadcastRequest), IngestorError> {
+        let execute_msg = xrpl_gateway::msg::ExecuteMsg::RouteIncomingMessages(vec![
+            XRPLUserMessageWithPayload {
+                message: user_message,
+                payload: None, // TODO
+            },
+        ]);
+        let request = BroadcastRequest::Generic(serde_json::to_value(&execute_msg).unwrap());
+        Ok((self.config.xrpl_gateway_address.clone(), request))
+    }
+
     pub async fn handle_wasm_event(&self, task: ReactToWasmEventTask) -> Result<(), IngestorError> {
         let event_name = task.task.event_name.clone();
 
         match task.task.event_name.as_str() {
             "wasm-quorum-reached" => {
-                // TODO: handle prover messages
-                let user_message = task.task.message.clone();
+                let xrpl_message = task.task.message.clone();
+                let (contract_address, request) = match xrpl_message {
+                    XRPLMessage::UserMessage(user_message) => {
+                        self.user_message_routing_request(user_message)?
+                    }
+                    XRPLMessage::ProverMessage(tx_hash) => {
+                        self.prover_tx_routing_request(tx_hash).await?
+                    }
+                };
 
-                let message = xrpl_gateway::msg::ExecuteMsg::RouteIncomingMessages(vec![
-                    XRPLUserMessageWithPayload {
-                        message: user_message,
-                        payload: None, // TODO
-                    },
-                ]);
-                let request = BroadcastRequest::Generic(serde_json::to_value(&message).unwrap());
                 Ok(self
                     .gmp_api
-                    .post_broadcast("".to_owned(), &request)
+                    .post_broadcast(contract_address, &request)
                     .await
                     .map_err(|e| {
                         IngestorError::GenericError(format!(
