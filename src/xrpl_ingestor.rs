@@ -413,13 +413,13 @@ impl XrplIngestor {
         &self,
         task: ConstructProofTask,
     ) -> Result<(), IngestorError> {
-        let message = xrpl_multisig_prover::msg::ExecuteMsg::ConstructProof {
+        let execute_msg = xrpl_multisig_prover::msg::ExecuteMsg::ConstructProof {
             cc_id: CrossChainId::new(task.task.message.source_chain, task.task.message.message_id)
                 .unwrap(),
             payload: task.task.payload.as_bytes().try_into().unwrap(),
         };
 
-        let request = BroadcastRequest::Generic(serde_json::to_value(&message).unwrap());
+        let request = BroadcastRequest::Generic(serde_json::to_value(&execute_msg).unwrap());
         Ok(self
             .gmp_api
             .post_broadcast(self.config.multisig_prover_address.clone(), &request)
