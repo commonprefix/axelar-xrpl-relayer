@@ -347,7 +347,7 @@ impl XrplIngestor {
                 let execute_msg = xrpl_multisig_prover::msg::ExecuteMsg::ConfirmTxStatus {
                     signer_public_keys: signers_keys,
                     tx_id: unsigned_tx_hash,
-                    multisig_session_id: "0".try_into().unwrap(),
+                    multisig_session_id: "0".try_into().unwrap(), // TODO: remove
                 };
                 let request =
                     BroadcastRequest::Generic(serde_json::to_value(&execute_msg).unwrap());
@@ -422,7 +422,7 @@ impl XrplIngestor {
         let request = BroadcastRequest::Generic(serde_json::to_value(&message).unwrap());
         Ok(self
             .gmp_api
-            .post_broadcast("contract".to_owned(), &request)
+            .post_broadcast(self.config.multisig_prover_address.clone(), &request)
             .await
             .map_err(|e| {
                 IngestorError::GenericError(format!(
