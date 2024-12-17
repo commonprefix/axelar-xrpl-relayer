@@ -1,7 +1,7 @@
 use core::str;
 use std::{sync::Arc, vec};
 
-use multisig::key::{KeyType, PublicKey};
+use multisig::key::PublicKey;
 use router_api::CrossChainId;
 use serde::{Deserialize, Serialize};
 use xrpl_amplifier_types::{
@@ -354,13 +354,8 @@ impl XrplIngestor {
                 )?;
                 let signers_keys = signers
                     .iter()
-                    .map(|signer| {
-                        let key_type = KeyType::Ecdsa;
-                        let public_key: PublicKey =
-                            serde_json::from_str(&signer.signing_pub_key).unwrap();
-                        public_key
-                    })
-                    .collect();
+                    .map(|signer| serde_json::from_str(&signer.signing_pub_key).unwrap())
+                    .collect::<Vec<PublicKey>>();
 
                 let unsigned_tx_hash = create_unsigned_tx_hash(payment_transaction.clone())?;
                 let execute_msg = xrpl_multisig_prover::msg::ExecuteMsg::ConfirmTxStatus {
