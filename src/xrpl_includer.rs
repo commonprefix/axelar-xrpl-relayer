@@ -8,6 +8,7 @@ use xrpl_binary_codec::sign::sign_transaction;
 use xrpl_types::PaymentTransaction;
 use xrpl_types::{AccountId, Amount};
 
+use crate::config::Config;
 use crate::error::{BroadcasterError, ClientError, RefundManagerError};
 use crate::includer::{Broadcaster, Includer, RefundManager};
 
@@ -103,14 +104,16 @@ pub struct XRPLIncluder {}
 
 impl XRPLIncluder {
     pub async fn new<'a>(
-        secret: String,
-        refund_manager_address: String,
+        config: Config,
     ) -> Includer<XRPLBroadcaster, Arc<xrpl_http_client::Client>, XRPLRefundManager> {
         let client = Arc::new(XRPLClient::new_http_client(RPC_URL).unwrap());
 
         let broadcaster = XRPLBroadcaster::new(Arc::clone(&client)).unwrap();
-        let refund_manager =
-            XRPLRefundManager::new(Arc::clone(&client), refund_manager_address, secret);
+        let refund_manager = XRPLRefundManager::new(
+            Arc::clone(&client),
+            config.refund_manager_address,
+            config.includer_secret,
+        );
 
         let includer = Includer {
             chain_client: client,

@@ -10,6 +10,7 @@ use tokio::sync::watch;
 use tracing::{debug, error, info, warn};
 
 use crate::{
+    config::Config,
     error::IngestorError,
     gmp_api::GmpApi,
     gmp_types::Task,
@@ -24,8 +25,8 @@ pub struct Ingestor {
 }
 
 impl Ingestor {
-    pub fn new(gmp_api: Arc<GmpApi>, multisig_address: String) -> Self {
-        let xrpl_ingestor = XrplIngestor::new(gmp_api.clone(), multisig_address.clone());
+    pub fn new(gmp_api: Arc<GmpApi>, config: Config) -> Self {
+        let xrpl_ingestor = XrplIngestor::new(gmp_api.clone(), config.clone());
         Self {
             gmp_api,
             xrpl_ingestor,

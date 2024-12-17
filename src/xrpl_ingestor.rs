@@ -23,18 +23,12 @@ pub enum QueryMsg {
 
 pub struct XrplIngestor {
     gmp_api: Arc<GmpApi>,
-    multisig_address: String,
     config: Config,
 }
 
 impl XrplIngestor {
-    pub fn new(gmp_api: Arc<GmpApi>, multisig_address: String) -> Self {
-        let config = Config::from_env().map_err(|e| anyhow::anyhow!(e)).unwrap();
-        Self {
-            gmp_api,
-            multisig_address,
-            config,
-        }
+    pub fn new(gmp_api: Arc<GmpApi>, config: Config) -> Self {
+        Self { gmp_api, config }
     }
 
     pub async fn handle_transaction(&self, tx: Transaction) -> Result<Vec<Event>, IngestorError> {
@@ -59,7 +53,7 @@ impl XrplIngestor {
         &self,
         payment: PaymentTransaction,
     ) -> Result<Vec<Event>, IngestorError> {
-        if payment.destination != self.multisig_address {
+        if payment.destination != self.config.multisig_address {
             return Ok(Vec::new());
         }
 
@@ -115,7 +109,9 @@ impl XrplIngestor {
                     .clone()
                     .unwrap(),
             )
-            .unwrap().try_into().unwrap(),
+            .unwrap()
+            .try_into()
+            .unwrap(),
             amount: xrpl_amplifier_types::types::XRPLPaymentAmount::Drops(
                 str::from_utf8(
                     hex::decode(

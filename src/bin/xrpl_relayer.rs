@@ -24,8 +24,7 @@ async fn main() {
     let tasks_queue = Arc::new(Queue::new(&config.queue_address, "tasks").await);
     let events_queue = Arc::new(Queue::new(&config.queue_address, "events").await);
     let gmp_api = Arc::new(gmp_api::GmpApi::new(&config.gmp_api_url, "xrpl").unwrap());
-    let xrpl_includer =
-        XRPLIncluder::new(config.includer_secret, config.refund_manager_address).await;
+    let xrpl_includer = XRPLIncluder::new(config.clone()).await;
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
     let account = AccountId::from_address(&config.multisig_address).unwrap();
@@ -51,7 +50,7 @@ async fn main() {
 
     let events_queue_ref = events_queue.clone();
     let tasks_queue_ref = tasks_queue.clone();
-    let ingestor = Ingestor::new(gmp_api.clone(), config.multisig_address.clone());
+    let ingestor = Ingestor::new(gmp_api.clone(), config.clone());
     let ingestor_handle = tokio::spawn({
         let shutdown_rx = shutdown_rx.clone();
         async move {

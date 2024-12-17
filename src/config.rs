@@ -2,6 +2,7 @@ use std::env;
 
 use anyhow::{Context, Result};
 
+#[derive(Debug, Clone)]
 pub struct Config {
     pub refund_manager_address: String,
     pub includer_secret: String,
