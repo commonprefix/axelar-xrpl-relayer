@@ -116,6 +116,7 @@ app.post('/contracts/:contract/broadcasts', (req, res) => {
             })
         }
     } else if (req.body.route_incoming_messages) {
+        // TODO: implement its hub flow
         for (let message of req.body.route_incoming_messages) {
             tasks.push({
                 id: task_autoincrement++,
