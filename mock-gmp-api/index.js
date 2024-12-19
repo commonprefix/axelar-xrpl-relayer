@@ -29,74 +29,54 @@ const construct_proof_task = {
     }
 };
 
-const verify_task = {
-    id: uuidv4(),
-    chain: "chainC",
-    timestamp: new Date().toISOString(),
-    type: "VERIFY",
-    meta: {
-        sourceContext: {
-            user_message: {
-                tx_id: "1757F2CBE522A273A5B9FEEBDC8C49F4B4FDAA5D8FE88E7204DBAC455A6A5498",
-                source_address: "rUicSJrWuWo8Prpx98fAmfBx2J9MLB4p2K",
-                destination_chain: "avalanche",
-                destination_address: Buffer.from("avax10f8305248c0wsfsdempdtpx7lpkc30vwzl9y9q", 'utf8').toString('hex'),
-                payload_hash: "0000000000000000000000000000000000000000000000000000000000000000",
-                amount: { drops: 1234560 }
-            }
-        }
-    },
-    task: {
-        message: {
-            messageID: "msg-789",
-            sourceChain: "chainC",
-            sourceAddress: "0xAnotherSource",
-            destinationAddress: "0xAnotherDest",
-            payloadHash: "ZWZnaDU2Nzg=" // base64-encoded payloadHash
-        },
-        payload: "bW9yZV9leGFtcGxlX2RhdGE=" // base64-encoded payload
-    }
+const its_message = {
+    messageID: "msg-789",
+    sourceChain: "chainC",
+    sourceAddress: "0xAnotherSource",
+    destinationAddress: "0xAnotherDest",
+    payloadHash: "ZWZnaDU2Nzg=" // base64-encoded payloadHash
 };
-
-// State flags
-let verify_returned = false;           // True after we have returned the VERIFY task once
-let proof_broadcast_received = false;  // True after a verify_messages broadcast is posted
-let proof_returned = false;            // True after we have returned the CONSTRUCT_PROOF task once
 
 // Initially returns no tasks. After event posted, returns VERIFY once.
 // After verify_messages broadcast, returns CONSTRUCT_PROOF once.
+let tasks = [];
 app.get('/chains/xrpl/tasks', (req, res) => {
-    // If event is received but VERIFY not returned yet, return VERIFY task once
-    if (!verify_returned) {
-        verify_returned = true;
-        return res.json({ tasks: [verify_task] });
-    }
+    const afterParam = req.query.after;
 
-    // If we've received the verify_messages broadcast and not returned the CONSTRUCT_PROOF task yet:
-    if (proof_broadcast_received && !proof_returned) {
-        proof_returned = true;
-        return res.json({ tasks: [construct_proof_task] });
-    }
+    const after = afterParam ? Number(afterParam) : null;
 
-    // Otherwise, no tasks
-    res.json({ tasks: [] });
+    const filteredTasks = after !== null && !isNaN(after)
+        ? tasks.filter(task => task.id > after)
+        : tasks;
+
+    res.json({ tasks: filteredTasks });
 });
+
+let task_autoincrement = 0;
 
 // Posting an event here starts the chain reaction: next GET /tasks returns VERIFY once.
 app.post('/chains/xrpl/events', (req, res) => {
     console.log("Received event: ");
     console.log(JSON.stringify(req.body, null, 2));
-    event_received = true;
-    let response = {
-        results: [{
-            status: "ACCEPTED",
-            index: 0
-        }, {
-            status: "ACCEPTED",
-            index: 1
+
+    for (let event of req.body.events) {
+        if (event.type === "CALL") {
+            // TODO: emit verify task
+            tasks.push({
+                id: task_autoincrement++,
+                chain: "xrpl",
+                timestamp: new Date().toISOString(),
+                type: "VERIFY",
+                meta: event.meta,
+                task: {
+                    message: its_message,
+                    payload: "bW9yZV9leGFtcGxlX2RhdGE=" // base64-encoded payload
+                }
+            });
         }
-        ]
     }
+    let response = { results: req.body.events.map((_, index) => ({ status: "ACCEPTED", index })) }
+    console.log("sending response", response)
     res.json(response);
 });
 
@@ -121,7 +101,75 @@ app.post('/contracts/:contract/broadcasts', (req, res) => {
         --node ${RPC_URL} \
         -y`;
 
-    console.log(`Command: ${command}`);
+    if (req.body.verify_messages) {
+        for (let message of req.body.verify_messages) {
+            tasks.push({
+                id: task_autoincrement++,
+                chain: "xrpl",
+                timestamp: new Date().toISOString(),
+                type: "REACT_TO_WASM_EVENT",
+                meta: null,
+                task: {
+                    event_name: "wasm-quorum-reached",
+                    message
+                }
+            })
+        }
+    } else if (req.body.route_incoming_messages) {
+        for (let message of req.body.route_incoming_messages) {
+            tasks.push({
+                id: task_autoincrement++,
+                chain: "xrpl",
+                timestamp: new Date().toISOString(),
+                type: "CONSTRUCT_PROOF",
+                meta: null,
+                task: {
+                    message: its_message,
+                    payload: "bW9yZV9leGFtcGxlX2RhdGE="
+                }
+            })
+        }
+    } else if (req.body.construct_proof) {
+        let { cc_id, payload } = req.body.construct_proof;
+
+        tasks.push({
+            id: task_autoincrement++,
+            chain: "xrpl",
+            timestamp: new Date().toISOString(),
+            type: "GATEWAY_TX",
+            meta: null,
+            task: {
+                executeData: "execute this tx"
+            }
+        })
+    }
+    return res.json({ status: "OK" });
+    // console.log(`Command: ${command}`);
+    // exec(command, (error, stdout, stderr) => {
+    //     console.log(`Command: ${command}`);
+    //     if (error) {
+    //         console.error(`\tError: ${error.message}`);
+    //         res.status(500).send('Error executing broadcast' + error.message);
+    //         return;
+    //     }
+
+    //     console.log(`\tResponse: ${stdout}`);
+    //     res.status(500).send('Dont do anything');
+    //     // res.json(JSON.parse(stdout));
+    // });
+});
+
+const XRPL_GATEWAY_ADDRESS = 'axelar1qhqra0tjsgv9wy5zz68g7x7wteqzg7f2ne822kc4gf6dkxzsa5zsu7mqjq';
+app.post('/contracts/:contract/queries', (req, res) => {
+    const contract = req.params.contract;
+
+    console.log(`Received query for contract ${contract}:`);
+    console.log(JSON.stringify(req.body, null, 2));
+
+    return res.json(its_message);
+    const query = JSON.stringify(req.body);
+    const command = `axelard q wasm contract-state smart ${contract} '${query}'`;
+    console.log("Executing axelard command: " + command);
     exec(command, (error, stdout, stderr) => {
         console.log(`Command: ${command}`);
         if (error) {
@@ -135,36 +183,6 @@ app.post('/contracts/:contract/broadcasts', (req, res) => {
         //     res.status(500).send('Error executing query' + stderr);
         //     return;
         // }
-
-        console.log(`\tResponse: ${stdout}`);
-        res.json(JSON.parse(stdout));
-    });
-});
-
-const XRPL_GATEWAY_ADDRESS = 'axelar1qhqra0tjsgv9wy5zz68g7x7wteqzg7f2ne822kc4gf6dkxzsa5zsu7mqjq';
-app.post('/contracts/:contract/queries', (req, res) => {
-    const contract = req.params.contract;
-
-    return res.json({ foo: 'bar' });
-    console.log(`Received query for contract ${contract}:`);
-    console.log(JSON.stringify(req.body, null, 2));
-
-    const query = JSON.stringify(req.body);
-    const command = `axelard q wasm contract-state smart ${XRPL_GATEWAY_ADDRESS} '${query}'`;
-    console.log("Executing axelard command: " + command);
-    exec(command, (error, stdout, stderr) => {
-        console.log(`Command: ${command}`);
-        if (error) {
-            console.error(`\tError: ${error.message}`);
-            res.status(500).send('Error executing query' + error.message);
-            return;
-        }
-
-        if (stderr) {
-            console.error(`\tstderr: ${stderr}`);
-            res.status(500).send('Error executing query' + stderr);
-            return;
-        }
 
         console.log(`\tResponse: ${stdout}`);
         res.json(JSON.parse(stdout));
