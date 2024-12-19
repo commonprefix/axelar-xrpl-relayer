@@ -18,6 +18,7 @@ use crate::{
         self, BroadcastRequest, CommonEventFields, ConstructProofTask, Event, GatewayV2Message,
         Metadata, QueryRequest, ReactToWasmEventTask, VerifyTask,
     },
+    utils::extract_from_xrpl_memo,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -318,39 +319,21 @@ impl XrplIngestor {
         })?;
         match res.tx {
             Transaction::Payment(payment_transaction) => {
-                let memos =
-                    payment_transaction
-                        .common
-                        .memos
-                        .clone()
-                        .ok_or(IngestorError::GenericError(
-                            "Payment transaction missing memos".to_owned(),
-                        ))?;
-
-                let mut multisig_session_id: Option<u64> = None;
-                for memo in memos.iter() {
-                    if memo.memo_type == Some("multisig_session_id".to_owned()) {
-                        let bytes: [u8; 8] = hex::decode(memo.memo_data.as_ref().unwrap())
-                            .map_err(|_| {
-                                IngestorError::GenericError("Failed to decode hex".to_owned())
-                            })?
-                            .try_into()
-                            .map_err(|_| {
-                                IngestorError::GenericError(
-                                    "Invalid length for multisig_session_id".to_owned(),
-                                )
-                            })?;
-
-                        multisig_session_id = Some(u64::from_be_bytes(bytes));
-                        break;
-                    }
-                }
-
-                let multisig_session_id = multisig_session_id.ok_or_else(|| {
-                    IngestorError::GenericError(
-                        "Payment transaction missing multisig_session_id memo".to_owned(),
-                    )
-                })?;
+                let multisig_session_id_hex =
+                    extract_from_xrpl_memo(payment_transaction.common.memos, "multisig_session_id")
+                        .map_err(|e| {
+                            IngestorError::GenericError(format!(
+                                "Failed to extract multisig_session_id from memos: {}",
+                                e.to_string()
+                            ))
+                        })?;
+                let multisig_session_id = u64::from_str_radix(&multisig_session_id_hex, 16)
+                    .map_err(|e| {
+                        IngestorError::GenericError(format!(
+                            "Failed to parse multisig_session_id: {}",
+                            e.to_string()
+                        ))
+                    })?;
 
                 let signers = payment_transaction.common.signers.clone().ok_or(
                     IngestorError::GenericError("Payment transaction missing signers".to_owned()),

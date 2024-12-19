@@ -1,5 +1,6 @@
 use serde_json::Value;
 use tracing::{info, warn};
+use xrpl_api::Memo;
 
 use crate::{
     error::GmpApiError,
@@ -58,4 +59,18 @@ pub fn parse_task(task_json: &Value) -> Result<Task, GmpApiError> {
             ))
         }
     }
+}
+
+pub fn extract_from_xrpl_memo(
+    memos: Option<Vec<Memo>>,
+    memo_type: &str,
+) -> Result<String, anyhow::Error> {
+    let memos = memos.clone().ok_or(anyhow::anyhow!("No memos"))?;
+
+    for memo in memos.iter() {
+        if memo.memo_type == Some(memo_type.to_owned()) {
+            return Ok(memo.memo_data.clone().unwrap());
+        }
+    }
+    Err(anyhow::anyhow!("No memo with type: {}", memo_type))
 }
