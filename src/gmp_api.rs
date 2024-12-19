@@ -4,6 +4,7 @@ use futures::Stream;
 use serde_json::Value;
 use std::{collections::HashMap, pin::Pin, time::Duration};
 use tracing::{debug, info, warn};
+use tracing_subscriber::field::debug;
 
 use reqwest::Client;
 
@@ -37,16 +38,19 @@ impl GmpApi {
         })
     }
 
-    pub async fn get_tasks_action(&self) -> Result<Vec<Task>, GmpApiError> {
+    pub async fn get_tasks_action(&self, after: Option<i64>) -> Result<Vec<Task>, GmpApiError> {
         let request_url = format!("{}/chains/{}/tasks", self.rpc_url, self.chain);
-        let res = self
-            .client
-            .get(&request_url)
+
+        let mut request = self.client.get(&request_url);
+        if let Some(after) = after {
+            request = request.query(&[("after", after)]);
+            debug!("Requesting tasks after: {}", after);
+        }
+        let res = request
             .send()
             .await
             .map_err(|e| GmpApiError::RequestFailed(e.to_string()))?;
 
-        debug!("Headers from {}: {:?}", request_url, res);
         res.error_for_status_ref()
             .map_err(|e| GmpApiError::ErrorResponse(e.to_string()))?;
 
@@ -72,10 +76,10 @@ impl GmpApi {
             .collect::<Vec<_>>())
     }
 
-    pub fn get_tasks(&self) -> Pin<Box<dyn Stream<Item = Vec<Task>> + '_>> {
+    pub fn get_tasks(&self, after: Option<i64>) -> Pin<Box<dyn Stream<Item = Vec<Task>> + '_>> {
         let s = stream! {
             loop {
-                let tasks = self.get_tasks_action().await;
+                let tasks = self.get_tasks_action(after).await;
                 match tasks {
                     Ok(tasks) => {
                         yield tasks;
