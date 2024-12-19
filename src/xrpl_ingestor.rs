@@ -362,7 +362,7 @@ impl XrplIngestor {
 
                 let execute_msg = xrpl_multisig_prover::msg::ExecuteMsg::ConfirmTxStatus {
                     signer_public_keys: signers_keys,
-                    tx_id: TxHash::new(
+                    signed_tx_hash: TxHash::new(
                         payment_transaction
                             .common
                             .hash
