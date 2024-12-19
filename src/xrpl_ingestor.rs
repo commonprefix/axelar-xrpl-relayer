@@ -1,15 +1,12 @@
 use core::str;
-use std::{sync::Arc, vec};
+use std::{collections::HashMap, sync::Arc, vec};
 
 use multisig::key::PublicKey;
 use router_api::CrossChainId;
 use serde::{Deserialize, Serialize};
 use xrpl_amplifier_types::{
     msg::{XRPLMessage, XRPLUserMessage, XRPLUserMessageWithPayload},
-    types::{
-        hash_unsigned_tx, TxHash, XRPLAccountId, XRPLCurrency, XRPLPaymentAmount, XRPLPaymentTx,
-        XRPLSequence, XRPLToken, XRPLUnsignedTx,
-    },
+    types::TxHash,
 };
 use xrpl_api::{PaymentTransaction, Transaction, TxRequest};
 
@@ -45,7 +42,7 @@ fn parse_message_from_context(metadata: Option<Metadata>) -> Result<XRPLMessage,
         ))?;
 
     Ok(source_context
-        .get(&"message".to_owned())
+        .get(&"user_message".to_owned())
         .ok_or(IngestorError::GenericError(
             "Verify task missing user_message in source_context".to_owned(),
         ))
@@ -56,30 +53,6 @@ fn parse_message_from_context(metadata: Option<Metadata>) -> Result<XRPLMessage,
             ))
         })?
         .to_owned())
-}
-
-fn create_unsigned_tx_hash(payment: PaymentTransaction) -> Result<TxHash, IngestorError> {
-    let amount = match payment.amount {
-        xrpl_api::Amount::Issued(issued_amount) => XRPLPaymentAmount::Issued(
-            XRPLToken {
-                issuer: XRPLAccountId::new(issued_amount.issuer.as_bytes().try_into().unwrap()),
-                currency: XRPLCurrency::new(&issued_amount.currency).unwrap(),
-            },
-            issued_amount.value.try_into().unwrap(),
-        ),
-        xrpl_api::Amount::Drops(drops) => XRPLPaymentAmount::Drops(drops.parse::<u64>().unwrap()),
-    };
-    let tx = XRPLUnsignedTx::Payment(XRPLPaymentTx {
-        account: XRPLAccountId::new(payment.common.account.as_bytes().try_into().unwrap()),
-        fee: payment.common.fee.parse::<u64>().unwrap(),
-        sequence: XRPLSequence::Plain(payment.common.sequence),
-        amount,
-        destination: XRPLAccountId::new(payment.destination.as_bytes().try_into().unwrap()),
-        cross_currency: None, // TODO
-    });
-    Ok(hash_unsigned_tx(&tx).map_err(|e| {
-        IngestorError::GenericError(format!("Failed to hash unsigned tx: {}", e.to_string()))
-    })?)
 }
 
 impl XrplIngestor {
@@ -225,6 +198,11 @@ impl XrplIngestor {
             ), // TODO: Assumption: the actual amount to be wrapped is in the third memo as a string (drops)
         };
 
+        let source_context = HashMap::from([(
+            "user_message".to_owned(),
+            XRPLMessage::UserMessage(xrpl_user_message.clone()),
+        )]);
+
         let query = QueryMsg::GetITSMessage(xrpl_user_message.clone());
         let request = QueryRequest::Generic(serde_json::to_value(&query).unwrap());
         let its_hub_message: GatewayV2Message = serde_json::from_str(
@@ -251,7 +229,12 @@ impl XrplIngestor {
             message: its_hub_message,
             destination_chain: xrpl_user_message.destination_chain.to_string(),
             payload: "".to_owned(), // TODO
-            meta: None,
+            meta: Some(Metadata {
+                tx_id: None,
+                from_address: None,
+                finalized: None,
+                source_context: Some(source_context),
+            }),
         })
     }
 
@@ -335,6 +318,40 @@ impl XrplIngestor {
         })?;
         match res.tx {
             Transaction::Payment(payment_transaction) => {
+                let memos =
+                    payment_transaction
+                        .common
+                        .memos
+                        .clone()
+                        .ok_or(IngestorError::GenericError(
+                            "Payment transaction missing memos".to_owned(),
+                        ))?;
+
+                let mut multisig_session_id: Option<u64> = None;
+                for memo in memos.iter() {
+                    if memo.memo_type == Some("multisig_session_id".to_owned()) {
+                        let bytes: [u8; 8] = hex::decode(memo.memo_data.as_ref().unwrap())
+                            .map_err(|_| {
+                                IngestorError::GenericError("Failed to decode hex".to_owned())
+                            })?
+                            .try_into()
+                            .map_err(|_| {
+                                IngestorError::GenericError(
+                                    "Invalid length for multisig_session_id".to_owned(),
+                                )
+                            })?;
+
+                        multisig_session_id = Some(u64::from_be_bytes(bytes));
+                        break;
+                    }
+                }
+
+                let multisig_session_id = multisig_session_id.ok_or_else(|| {
+                    IngestorError::GenericError(
+                        "Payment transaction missing multisig_session_id memo".to_owned(),
+                    )
+                })?;
+
                 let signers = payment_transaction.common.signers.clone().ok_or(
                     IngestorError::GenericError("Payment transaction missing signers".to_owned()),
                 )?;
@@ -343,11 +360,18 @@ impl XrplIngestor {
                     .map(|signer| serde_json::from_str(&signer.signing_pub_key).unwrap())
                     .collect::<Vec<PublicKey>>();
 
-                let unsigned_tx_hash = create_unsigned_tx_hash(payment_transaction.clone())?;
                 let execute_msg = xrpl_multisig_prover::msg::ExecuteMsg::ConfirmTxStatus {
                     signer_public_keys: signers_keys,
-                    tx_id: unsigned_tx_hash,
-                    multisig_session_id: "0".try_into().unwrap(), // TODO: remove
+                    tx_id: TxHash::new(
+                        payment_transaction
+                            .common
+                            .hash
+                            .unwrap()
+                            .as_bytes()
+                            .try_into()
+                            .unwrap(),
+                    ),
+                    multisig_session_id: multisig_session_id.try_into().unwrap(),
                 };
                 let request =
                     BroadcastRequest::Generic(serde_json::to_value(&execute_msg).unwrap());
