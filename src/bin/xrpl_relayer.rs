@@ -62,10 +62,13 @@ async fn main() {
 
     let tasks_queue_ref = tasks_queue.clone();
     let gmp_api_ref = gmp_api.clone();
+    let mut distributor = Distributor::new();
     let distributor_handle = tokio::spawn({
         let shutdown_rx = shutdown_rx.clone();
         async move {
-            Distributor::run(gmp_api_ref, tasks_queue_ref, shutdown_rx).await;
+            distributor
+                .run(gmp_api_ref, tasks_queue_ref, shutdown_rx)
+                .await;
         }
     });
 
