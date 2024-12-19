@@ -38,7 +38,7 @@ pub struct Amount {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct CommonTaskFields {
-    pub id: String,
+    pub id: i64,
     pub chain: String,
     pub timestamp: String,
     pub r#type: String,
@@ -137,6 +137,19 @@ pub enum Task {
     ConstructProof(ConstructProofTask),
     ReactToWasmEvent(ReactToWasmEventTask),
     Refund(RefundTask),
+}
+
+impl Task {
+    pub fn id(&self) -> i64 {
+        match self {
+            Task::Execute(t) => t.common.id,
+            Task::Verify(t) => t.common.id,
+            Task::GatewayTx(t) => t.common.id,
+            Task::ConstructProof(t) => t.common.id,
+            Task::ReactToWasmEvent(t) => t.common.id,
+            Task::Refund(t) => t.common.id,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
