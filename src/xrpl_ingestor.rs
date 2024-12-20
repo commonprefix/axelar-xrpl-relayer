@@ -73,17 +73,21 @@ async fn build_xrpl_user_message(
             })?;
     } else if payload_hash_memo.is_ok() {
         payload_hash = payload_hash_memo.unwrap();
-        payload = Some(
-            payload_cache
-                .get_payload(&hex::encode(payload_hash.clone()))
-                .await
-                .map_err(|e| {
-                    IngestorError::GenericError(format!(
-                        "Failed to get payload from cache: {}",
-                        e.to_string()
-                    ))
-                })?,
-        );
+        if payload_hash == "0".repeat(64) {
+            payload = None;
+        } else {
+            payload = Some(
+                payload_cache
+                    .get_payload(&hex::encode(payload_hash.clone()))
+                    .await
+                    .map_err(|e| {
+                        IngestorError::GenericError(format!(
+                            "Failed to get payload from cache: {}",
+                            e.to_string()
+                        ))
+                    })?,
+            );
+        }
     } else {
         payload = None;
         payload_hash = "0".repeat(64);
@@ -107,11 +111,14 @@ async fn build_xrpl_user_message(
                 .unwrap(),
             payload_hash: hex::decode(payload_hash).unwrap().try_into().unwrap(),
             amount: xrpl_amplifier_types::types::XRPLPaymentAmount::Drops(
-                str::from_utf8(hex::decode(deposit_amount).unwrap().as_slice())
-                    .unwrap()
-                    .parse::<u64>()
-                    .unwrap(),
-            ),
+                payment.amount.size() as u64
+            ), // TODO: Recover this
+               // amount: xrpl_amplifier_types::types::XRPLPaymentAmount::Drops(
+               //     str::from_utf8(hex::decode(deposit_amount).unwrap().as_slice())
+               //         .unwrap()
+               //         .parse::<u64>()
+               //         .unwrap(),
+               // ),
         },
         payload: None,
     };
@@ -275,7 +282,7 @@ impl XrplIngestor {
             message: interchain_transfer_response
                 .message_with_payload
                 .unwrap()
-                .message, // TODO
+                .message,
             destination_chain: xrpl_user_message.destination_chain.to_string(),
             payload: xrpl_user_message_with_payload
                 .payload
