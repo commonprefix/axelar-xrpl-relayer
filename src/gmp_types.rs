@@ -202,6 +202,16 @@ pub enum Event {
         payment: Amount,
         meta: Option<Metadata>,
     },
+    MessageExecuted {
+        #[serde(flatten)]
+        common: CommonEventFields,
+        #[serde(rename = "messageID")]
+        message_id: String,
+        #[serde(rename = "sourceChain")]
+        source_chain: String,
+        cost: Amount,
+        meta: Option<Metadata>,
+    },
     CannotExecuteMessage {
         #[serde(flatten)]
         common: CommonEventFields,
