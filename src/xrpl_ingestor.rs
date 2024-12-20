@@ -9,14 +9,15 @@ use xrpl_amplifier_types::{
     types::TxHash,
 };
 use xrpl_api::{Memo, PaymentTransaction, Transaction, TxRequest};
+use xrpl_gateway::msg::InterchainTransfer;
 
 use crate::{
     config::Config,
     error::IngestorError,
     gmp_api::GmpApi,
     gmp_types::{
-        self, BroadcastRequest, CommonEventFields, ConstructProofTask, Event, GatewayV2Message,
-        Metadata, QueryRequest, ReactToWasmEventTask, VerifyTask,
+        self, BroadcastRequest, CommonEventFields, ConstructProofTask, Event, Metadata,
+        QueryRequest, ReactToWasmEventTask, VerifyTask,
     },
     payload_cache::PayloadCacheClient,
     utils::extract_from_xrpl_memo,
@@ -37,7 +38,10 @@ fn extract_memo(memos: &Option<Vec<Memo>>, memo_type: &str) -> Result<String, In
     })
 }
 
-fn build_xrpl_user_message(payment: &PaymentTransaction) -> Result<XRPLUserMessage, IngestorError> {
+async fn build_xrpl_user_message(
+    payload_cache: &PayloadCacheClient,
+    payment: &PaymentTransaction,
+) -> Result<XRPLUserMessageWithPayload, IngestorError> {
     let tx_hash = payment.common.hash.clone().ok_or_else(|| {
         IngestorError::GenericError("Payment transaction missing field 'hash'".to_owned())
     })?;
@@ -46,32 +50,78 @@ fn build_xrpl_user_message(payment: &PaymentTransaction) -> Result<XRPLUserMessa
 
     let destination_address = extract_memo(memos, "destination_address")?;
     let destination_chain = extract_memo(memos, "destination_chain")?;
-    let payload_hash = extract_memo(memos, "payload_hash")?;
     let deposit_amount = extract_memo(memos, "deposit")?;
+    let payload_hash_memo = extract_memo(memos, "payload_hash");
+    let payload_memo = extract_memo(memos, "payload");
+    let payload;
+    let payload_hash;
 
-    Ok(XRPLUserMessage {
-        tx_id: hex::decode(tx_hash.clone())
-            .unwrap()
-            .as_slice()
-            .try_into()
-            .unwrap(),
-        source_address: payment.common.account.clone().try_into().unwrap(),
-        destination_address: hex::decode(destination_address)
-            .unwrap()
-            .try_into()
-            .unwrap(),
-        destination_chain: str::from_utf8(hex::decode(destination_chain).unwrap().as_slice())
-            .unwrap()
-            .try_into()
-            .unwrap(),
-        payload_hash: hex::decode(payload_hash).unwrap().try_into().unwrap(),
-        amount: xrpl_amplifier_types::types::XRPLPaymentAmount::Drops(
-            str::from_utf8(hex::decode(deposit_amount).unwrap().as_slice())
+    if payload_memo.is_ok() && payload_hash_memo.is_ok() {
+        return Err(IngestorError::GenericError(
+            "Payment transaction cannot have both 'payload' and 'payload_hash' memos".to_owned(),
+        ));
+    } else if payload_memo.is_ok() {
+        payload = Some(payload_memo.unwrap());
+        payload_hash = payload_cache
+            .store_payload(&payload.clone().unwrap())
+            .await
+            .map_err(|e| {
+                IngestorError::GenericError(format!(
+                    "Failed to store payload in cache: {}",
+                    e.to_string()
+                ))
+            })?;
+    } else if payload_hash_memo.is_ok() {
+        payload_hash = payload_hash_memo.unwrap();
+        payload = Some(
+            payload_cache
+                .get_payload(&hex::encode(payload_hash.clone()))
+                .await
+                .map_err(|e| {
+                    IngestorError::GenericError(format!(
+                        "Failed to get payload from cache: {}",
+                        e.to_string()
+                    ))
+                })?,
+        );
+    } else {
+        payload = None;
+        payload_hash = "0".repeat(64);
+    }
+
+    let mut message_with_payload = XRPLUserMessageWithPayload {
+        message: XRPLUserMessage {
+            tx_id: hex::decode(tx_hash.clone())
                 .unwrap()
-                .parse::<u64>()
+                .as_slice()
+                .try_into()
                 .unwrap(),
-        ), // TODO: Assumption: the actual amount to be wrapped is in the third memo as a string (drops)
-    })
+            source_address: payment.common.account.clone().try_into().unwrap(),
+            destination_address: hex::decode(destination_address)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+            destination_chain: str::from_utf8(hex::decode(destination_chain).unwrap().as_slice())
+                .unwrap()
+                .try_into()
+                .unwrap(),
+            payload_hash: hex::decode(payload_hash).unwrap().try_into().unwrap(),
+            amount: xrpl_amplifier_types::types::XRPLPaymentAmount::Drops(
+                str::from_utf8(hex::decode(deposit_amount).unwrap().as_slice())
+                    .unwrap()
+                    .parse::<u64>()
+                    .unwrap(),
+            ),
+        },
+        payload: None,
+    };
+
+    if payload.is_some() {
+        message_with_payload.payload =
+            Some(payload.unwrap().as_bytes().to_vec().try_into().unwrap());
+    }
+
+    Ok(message_with_payload)
 }
 
 pub struct XrplIngestor {
@@ -188,26 +238,20 @@ impl XrplIngestor {
         &self,
         payment: &PaymentTransaction,
     ) -> Result<Event, IngestorError> {
-        let xrpl_user_message = build_xrpl_user_message(payment)?;
-        let payload = self
-            .payload_cache
-            .get_payload(&hex::encode(xrpl_user_message.payload_hash))
-            .await
-            .map_err(|e| {
-                IngestorError::GenericError(format!(
-                    "Failed to get payload from cache: {}",
-                    e.to_string()
-                ))
-            })?;
+        let xrpl_user_message_with_payload =
+            build_xrpl_user_message(&self.payload_cache, payment).await?;
+        let xrpl_user_message = xrpl_user_message_with_payload.message.clone();
 
         let source_context = HashMap::from([(
             "user_message".to_owned(),
             XRPLMessage::UserMessage(xrpl_user_message.clone()),
         )]);
 
-        let query = QueryMsg::GetITSMessage(xrpl_user_message.clone());
+        let query = xrpl_gateway::msg::QueryMsg::InterchainTransfer {
+            message_with_payload: xrpl_user_message_with_payload.clone(),
+        };
         let request = QueryRequest::Generic(serde_json::to_value(&query).unwrap());
-        let its_hub_message: GatewayV2Message = serde_json::from_str(
+        let interchain_transfer_response: InterchainTransfer = serde_json::from_str(
             &self
                 .gmp_api
                 .post_query(self.config.xrpl_gateway_address.clone(), &request)
@@ -228,9 +272,15 @@ impl XrplIngestor {
                 r#type: "CALL".to_owned(),
                 event_id: xrpl_user_message.tx_id.to_string(),
             },
-            message: its_hub_message,
+            message: interchain_transfer_response
+                .message_with_payload
+                .unwrap()
+                .message, // TODO
             destination_chain: xrpl_user_message.destination_chain.to_string(),
-            payload,
+            payload: xrpl_user_message_with_payload
+                .payload
+                .map(|p| p.to_hex())
+                .unwrap_or_else(|| "".to_string()),
             meta: Some(Metadata {
                 tx_id: None,
                 from_address: None,
@@ -252,20 +302,12 @@ impl XrplIngestor {
                 "Payment transaction missing field 'hash'".to_owned(),
             ))?;
         let total_amount = payment.amount.size() as u64; // TODO: size should probably not be used
-        let deposit_amount = str::from_utf8(
-            hex::decode(
-                payment.common.memos.clone().unwrap()[3]
-                    .memo_data
-                    .clone()
-                    .unwrap(),
-            )
+        let deposit_amount_memo = extract_memo(&payment.common.memos, "deposit")?;
+        let deposit_amount = str::from_utf8(hex::decode(deposit_amount_memo).unwrap().as_slice())
             .unwrap()
-            .as_slice(),
-        )
-        .unwrap()
-        .to_string()
-        .parse::<u64>()
-        .unwrap(); // TODO: should this be a u64?
+            .to_string()
+            .parse::<u64>()
+            .unwrap(); // TODO: should this be a u64?
         let gas_amount = total_amount - deposit_amount;
         Ok(Event::GasCredit {
             common: CommonEventFields {
