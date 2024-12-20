@@ -4,7 +4,6 @@ use futures::Stream;
 use serde_json::Value;
 use std::{collections::HashMap, pin::Pin, time::Duration};
 use tracing::{debug, info, warn};
-use tracing_subscriber::field::debug;
 
 use reqwest::Client;
 

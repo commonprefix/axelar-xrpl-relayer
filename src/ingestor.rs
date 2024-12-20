@@ -155,7 +155,7 @@ impl Ingestor {
                     .handle_construct_proof(construct_proof_task)
                     .await
             }
-            Task::Refund(refund_task) => todo!(),
+            Task::Refund(_) => todo!(),
             _ => Err(IngestorError::IrrelevantTask),
         }
     }

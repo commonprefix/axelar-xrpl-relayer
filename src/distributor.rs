@@ -5,7 +5,6 @@ use tracing::{info, warn};
 
 use crate::{
     gmp_api::GmpApi,
-    gmp_types::Task,
     queue::{Queue, QueueItem},
 };
 
