@@ -11,7 +11,6 @@ const CHAIN_ID = "devnet-its";
 const GAS_PRICES = "0.00005uits";
 const RPC_URL = "http://k8s-devnetit-coresent-3ea294cee9-0949c478b885da8a.elb.us-east-2.amazonaws.com:26657";
 
-// Pre-define tasks
 const construct_proof_task = {
     id: uuidv4(),
     chain: "chainA",
@@ -37,8 +36,54 @@ const its_message = {
     payloadHash: "ZWZnaDU2Nzg=" // base64-encoded payloadHash
 };
 
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 // Initially returns no tasks. After event posted, returns VERIFY once.
 // After verify_messages broadcast, returns CONSTRUCT_PROOF once.
+function fetch_quorum_reached() {
+    // load tasks
+    const command = `axelard query txs \
+  --events 'wasm-messages_poll_started._contract_address=axelar1krfggamr6grhc8hxjk5lvcv26j4vu9xnlzkr08lqvjl65wpcsw8sx3pugs' \
+  --node http://k8s-devnetit-coresent-3ea294cee9-0949c478b885da8a.elb.us-east-2.amazonaws.com:26657 \
+  --output json`;
+
+    exec(command, (error, stdout, stderr) => {
+        if (error) {
+            console.error(`Error executing command: ${error.message}`);
+            return;
+        }
+
+        try {
+            const result = JSON.parse(stdout);
+            const events = [];
+            if (result && result.txs && Array.isArray(result.txs)) {
+                for (let tx of result.txs) {
+                    // TODO: maybe use tx's height as the task id
+                    for (let log of tx.logs) {
+                        let event = log.events.find(event => event.type === "wasm-quorum_reached");
+                        if (event) {
+                            console.log("Found quorum reached event: ", event);
+                            events.push(event);
+                        }
+                    }
+                }
+            }
+            return events;
+        } catch (parseError) {
+            console.error(`Failed to parse JSON: ${parseError.message}`);
+            console.error('Raw output:', stdout);
+        }
+    });
+}
+(async () => {
+    while (true) {
+        let quorum_reached_events = fetch_quorum_reached();
+        await delay(2000)
+    }
+})();
+
 let tasks = [];
 app.get('/chains/xrpl/tasks', (req, res) => {
     // TODO: listen for message routed event on gateway. When it comes, emit a construct proof task
@@ -70,8 +115,14 @@ app.post('/chains/xrpl/events', (req, res) => {
                 type: "VERIFY",
                 meta: event.meta,
                 task: {
-                    message: its_message,
-                    payload: "bW9yZV9leGFtcGxlX2RhdGE=" // base64-encoded payload
+                    message: {
+                        messageID: event.message.cc_id.message_id, // TODO ?
+                        sourceChain: event.message.cc_id.source_chain,
+                        sourceAddress: event.message.source_address,
+                        destinationAddress: event.message.destination_address,
+                        payloadHash: event.message.payload_hash
+                    },
+                    payload: event.payload
                 }
             });
         }
@@ -102,20 +153,32 @@ app.post('/contracts/:contract/broadcasts', (req, res) => {
         --node ${RPC_URL} \
         -y`;
 
+    console.log("Executing axelard command: " + command);
     if (req.body.verify_messages) {
-        for (let message of req.body.verify_messages) {
-            tasks.push({
-                id: task_autoincrement++,
-                chain: "xrpl",
-                timestamp: new Date().toISOString(),
-                type: "REACT_TO_WASM_EVENT",
-                meta: null,
-                task: {
-                    event_name: "wasm-quorum-reached",
-                    message
-                }
-            })
-        }
+        return exec(command, (error, stdout, stderr) => {
+            console.log(`Command: ${command}`);
+            if (error) {
+                console.error(`\tError: ${error.message}`);
+                return res.status(500).send('Error executing broadcast' + error.message);
+            }
+
+            console.log(`\tResponse: ${stdout}`);
+            return res.status(204).send();
+            // res.json(JSON.parse(stdout));
+        });
+        // for (let message of req.body.verify_messages) {
+        //     tasks.push({
+        //         id: task_autoincrement++,
+        //         chain: "xrpl",
+        //         timestamp: new Date().toISOString(),
+        //         type: "REACT_TO_WASM_EVENT",
+        //         meta: null,
+        //         task: {
+        //             event_name: "wasm-quorum-reached",
+        //             message
+        //         }
+        //     })
+        // }
     } else if (req.body.route_incoming_messages) {
         // TODO: implement its hub flow
         for (let message of req.body.route_incoming_messages) {
@@ -167,9 +230,8 @@ app.post('/contracts/:contract/queries', (req, res) => {
     console.log(`Received query for contract ${contract}:`);
     console.log(JSON.stringify(req.body, null, 2));
 
-    return res.json(its_message);
     const query = JSON.stringify(req.body);
-    const command = `axelard q wasm contract-state smart ${contract} '${query}'`;
+    const command = `axelard q wasm contract-state smart ${contract} '${query}' --node ${RPC_URL} --output json`;
     console.log("Executing axelard command: " + command);
     exec(command, (error, stdout, stderr) => {
         console.log(`Command: ${command}`);
@@ -179,14 +241,8 @@ app.post('/contracts/:contract/queries', (req, res) => {
             return;
         }
 
-        // if (stderr) {
-        //     console.error(`\tstderr: ${stderr}`);
-        //     res.status(500).send('Error executing query' + stderr);
-        //     return;
-        // }
-
         console.log(`\tResponse: ${stdout}`);
-        res.json(JSON.parse(stdout));
+        res.json(JSON.parse(stdout).data);
     });
 
     // res.json({
