@@ -8,7 +8,7 @@ use xrpl_amplifier_types::{
     msg::{XRPLMessage, XRPLUserMessage, XRPLUserMessageWithPayload},
     types::TxHash,
 };
-use xrpl_api::{PaymentTransaction, Transaction, TxRequest};
+use xrpl_api::{Memo, PaymentTransaction, Transaction, TxRequest};
 
 use crate::{
     config::Config,
@@ -18,6 +18,7 @@ use crate::{
         self, BroadcastRequest, CommonEventFields, ConstructProofTask, Event, GatewayV2Message,
         Metadata, QueryRequest, ReactToWasmEventTask, VerifyTask,
     },
+    payload_cache::PayloadCacheClient,
     utils::extract_from_xrpl_memo,
 };
 
@@ -26,10 +27,58 @@ pub enum QueryMsg {
     GetITSMessage(XRPLUserMessage), // TODO: can this be imported?
 }
 
+fn extract_memo(memos: &Option<Vec<Memo>>, memo_type: &str) -> Result<String, IngestorError> {
+    extract_from_xrpl_memo(memos.clone(), memo_type).map_err(|e| {
+        IngestorError::GenericError(format!(
+            "Failed to extract {} from memos: {}",
+            memo_type,
+            e.to_string()
+        ))
+    })
+}
+
+fn build_xrpl_user_message(payment: &PaymentTransaction) -> Result<XRPLUserMessage, IngestorError> {
+    let tx_hash = payment.common.hash.clone().ok_or_else(|| {
+        IngestorError::GenericError("Payment transaction missing field 'hash'".to_owned())
+    })?;
+
+    let memos = &payment.common.memos;
+
+    let destination_address = extract_memo(memos, "destination_address")?;
+    let destination_chain = extract_memo(memos, "destination_chain")?;
+    let payload_hash = extract_memo(memos, "payload_hash")?;
+    let deposit_amount = extract_memo(memos, "deposit")?;
+
+    Ok(XRPLUserMessage {
+        tx_id: hex::decode(tx_hash.clone())
+            .unwrap()
+            .as_slice()
+            .try_into()
+            .unwrap(),
+        source_address: payment.common.account.clone().try_into().unwrap(),
+        destination_address: hex::decode(destination_address)
+            .unwrap()
+            .try_into()
+            .unwrap(),
+        destination_chain: str::from_utf8(hex::decode(destination_chain).unwrap().as_slice())
+            .unwrap()
+            .try_into()
+            .unwrap(),
+        payload_hash: hex::decode(payload_hash).unwrap().try_into().unwrap(),
+        amount: xrpl_amplifier_types::types::XRPLPaymentAmount::Drops(
+            str::from_utf8(hex::decode(deposit_amount).unwrap().as_slice())
+                .unwrap()
+                .parse::<u64>()
+                .unwrap(),
+        ), // TODO: Assumption: the actual amount to be wrapped is in the third memo as a string (drops)
+    })
+}
+
 pub struct XrplIngestor {
     client: xrpl_http_client::Client,
     gmp_api: Arc<GmpApi>,
     config: Config,
+    payload_cache: PayloadCacheClient,
 }
 
 fn parse_message_from_context(metadata: Option<Metadata>) -> Result<XRPLMessage, IngestorError> {
@@ -61,10 +110,12 @@ impl XrplIngestor {
         let client = xrpl_http_client::Client::builder()
             .base_url(&config.xrpl_rpc)
             .build();
+        let payload_cache = PayloadCacheClient::new(&config.payload_cache);
         Self {
             gmp_api,
             config,
             client,
+            payload_cache,
         }
     }
 
@@ -137,67 +188,17 @@ impl XrplIngestor {
         &self,
         payment: &PaymentTransaction,
     ) -> Result<Event, IngestorError> {
-        let tx_hash = payment
-            .common
-            .hash
-            .clone()
-            .ok_or(IngestorError::GenericError(
-                "Payment transaction missing field 'hash'".to_owned(),
-            ))?;
-        let xrpl_user_message = XRPLUserMessage {
-            tx_id: hex::decode(tx_hash.clone())
-                .unwrap()
-                .as_slice()
-                .try_into()
-                .unwrap(),
-            source_address: payment.common.account.clone().try_into().unwrap(),
-            destination_address: hex::decode(
-                payment.common.memos.clone().unwrap()[0]
-                    .memo_data
-                    .clone()
-                    .unwrap(),
-            )
-            .unwrap()
-            .try_into()
-            .unwrap(),
-            destination_chain: str::from_utf8(
-                hex::decode(
-                    payment.common.memos.clone().unwrap()[1]
-                        .memo_data
-                        .clone()
-                        .unwrap(),
-                )
-                .unwrap()
-                .as_slice(),
-            )
-            .unwrap()
-            .try_into()
-            .unwrap(),
-            payload_hash: hex::decode(
-                payment.common.memos.clone().unwrap()[2]
-                    .memo_data
-                    .clone()
-                    .unwrap(),
-            )
-            .unwrap()
-            .try_into()
-            .unwrap(),
-            amount: xrpl_amplifier_types::types::XRPLPaymentAmount::Drops(
-                str::from_utf8(
-                    hex::decode(
-                        payment.common.memos.clone().unwrap()[3]
-                            .memo_data
-                            .clone()
-                            .unwrap(),
-                    )
-                    .unwrap()
-                    .as_slice(),
-                )
-                .unwrap()
-                .parse::<u64>()
-                .unwrap(),
-            ), // TODO: Assumption: the actual amount to be wrapped is in the third memo as a string (drops)
-        };
+        let xrpl_user_message = build_xrpl_user_message(payment)?;
+        let payload = self
+            .payload_cache
+            .get_payload(&hex::encode(xrpl_user_message.payload_hash))
+            .await
+            .map_err(|e| {
+                IngestorError::GenericError(format!(
+                    "Failed to get payload from cache: {}",
+                    e.to_string()
+                ))
+            })?;
 
         let source_context = HashMap::from([(
             "user_message".to_owned(),
@@ -225,11 +226,11 @@ impl XrplIngestor {
         Ok(Event::Call {
             common: CommonEventFields {
                 r#type: "CALL".to_owned(),
-                event_id: tx_hash.clone(),
+                event_id: xrpl_user_message.tx_id.to_string(),
             },
             message: its_hub_message,
             destination_chain: xrpl_user_message.destination_chain.to_string(),
-            payload: "".to_owned(), // TODO
+            payload,
             meta: Some(Metadata {
                 tx_id: None,
                 from_address: None,
