@@ -16,7 +16,7 @@ use crate::{
     error::IngestorError,
     gmp_api::GmpApi,
     gmp_types::{
-        self, BroadcastRequest, CommonEventFields, ConstructProofTask, Event, Metadata,
+        self, Amount, BroadcastRequest, CommonEventFields, ConstructProofTask, Event, Metadata,
         QueryRequest, ReactToWasmEventTask, VerifyTask,
     },
     payload_cache::PayloadCacheClient,
@@ -439,7 +439,7 @@ impl XrplIngestor {
         match task.task.event_name.as_str() {
             "wasm-quorum-reached" => {
                 let xrpl_message = task.task.message.clone();
-                let (contract_address, request) = match xrpl_message {
+                let (contract_address, request) = match xrpl_message.clone() {
                     XRPLMessage::UserMessage(user_message) => {
                         self.user_message_routing_request(user_message)?
                     }
@@ -448,8 +448,7 @@ impl XrplIngestor {
                     }
                 };
 
-                Ok(self
-                    .gmp_api
+                self.gmp_api
                     .post_broadcast(contract_address, &request)
                     .await
                     .map_err(|e| {
@@ -457,7 +456,45 @@ impl XrplIngestor {
                             "Failed to broadcast message: {}",
                             e.to_string()
                         ))
-                    })?)
+                    })?;
+
+                match xrpl_message {
+                    XRPLMessage::ProverMessage(_) => {
+                        // TODO: fill in fields
+                        let event = Event::MessageExecuted {
+                            common: CommonEventFields {
+                                r#type: "MESSAGE_EXECUTED".to_owned(),
+                                event_id: "TODO".to_owned(),
+                            },
+                            message_id: "id".to_owned(),
+                            source_chain: "source".to_owned(),
+                            cost: Amount {
+                                token_id: None,
+                                amount: "0".to_owned(),
+                            },
+                            meta: None,
+                        };
+                        let events_response =
+                            self.gmp_api.post_events(vec![event]).await.map_err(|e| {
+                                IngestorError::GenericError(format!(
+                                    "Failed to broadcast message: {}",
+                                    e.to_string()
+                                ))
+                            })?;
+                        let response =
+                            events_response.get(0).ok_or(IngestorError::GenericError(
+                                "Failed to get response from posting events".to_owned(),
+                            ))?;
+                        if response.status != "ACCEPTED" {
+                            return Err(IngestorError::GenericError(format!(
+                                "Failed to post event: {}",
+                                response.error.clone().unwrap_or_default()
+                            )));
+                        }
+                    }
+                    _ => {}
+                };
+                Ok(())
             }
             _ => Err(IngestorError::GenericError(format!(
                 "Unknown event name: {}",
