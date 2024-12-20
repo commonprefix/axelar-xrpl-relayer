@@ -41,6 +41,7 @@ const its_message = {
 // After verify_messages broadcast, returns CONSTRUCT_PROOF once.
 let tasks = [];
 app.get('/chains/xrpl/tasks', (req, res) => {
+    // TODO: listen for message routed event on gateway. When it comes, emit a construct proof task
     const afterParam = req.query.after;
 
     const after = afterParam ? Number(afterParam) : null;
@@ -160,7 +161,6 @@ app.post('/contracts/:contract/broadcasts', (req, res) => {
     // });
 });
 
-const XRPL_GATEWAY_ADDRESS = 'axelar1qhqra0tjsgv9wy5zz68g7x7wteqzg7f2ne822kc4gf6dkxzsa5zsu7mqjq';
 app.post('/contracts/:contract/queries', (req, res) => {
     const contract = req.params.contract;
 
