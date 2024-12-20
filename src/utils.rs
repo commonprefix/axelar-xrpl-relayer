@@ -68,7 +68,10 @@ pub fn extract_from_xrpl_memo(
     let memos = memos.clone().ok_or(anyhow::anyhow!("No memos"))?;
 
     for memo in memos.iter() {
-        if memo.memo_type == Some(memo_type.to_owned()) {
+        if memo.memo_type.is_some()
+            && memo.memo_type.clone().unwrap().to_lowercase()
+                == hex::encode(memo_type).to_lowercase()
+        {
             return Ok(memo.memo_data.clone().unwrap());
         }
     }
