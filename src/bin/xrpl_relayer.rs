@@ -2,8 +2,8 @@ use dotenv::dotenv;
 use std::sync::Arc;
 
 use axelar_xrpl_relayer::{
-    config::Config, distributor::Distributor, gmp_api, ingestor::Ingestor, queue::Queue,
-    subscriber::Subscriber, xrpl_includer::XRPLIncluder,
+    config::Config, distributor::Distributor, gmp_api, includer::xrpl_includer::XRPLIncluder,
+    ingestor::Ingestor, queue::Queue, subscriber::Subscriber,
 };
 use tokio::sync::watch;
 use tracing::{self, Level};
