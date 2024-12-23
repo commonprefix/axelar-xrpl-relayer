@@ -1,5 +1,3 @@
-pub mod xrpl_ingestor;
-
 use core::str;
 use futures::StreamExt;
 use lapin::{
@@ -9,7 +7,6 @@ use lapin::{
 use std::sync::Arc;
 use tokio::sync::watch;
 use tracing::{debug, error, info, warn};
-use xrpl_ingestor::XrplIngestor;
 
 use crate::{
     config::Config,
@@ -17,6 +14,7 @@ use crate::{
     gmp_api::{gmp_types::Task, GmpApi},
     queue::{Queue, QueueItem},
     subscriber::ChainTransaction,
+    xrpl::XrplIngestor,
 };
 
 pub struct Ingestor {

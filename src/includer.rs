@@ -1,5 +1,3 @@
-pub mod xrpl_includer;
-
 use futures::StreamExt;
 use lapin::{
     options::{BasicAckOptions, BasicNackOptions},
