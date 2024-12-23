@@ -1,10 +1,9 @@
 use core::str;
 use std::{collections::HashMap, sync::Arc, vec};
 
-use multisig::key::{KeyType, PublicKey};
+use multisig::key::PublicKey;
 use router_api::CrossChainId;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use tracing::debug;
 use xrpl_amplifier_types::{
     msg::{XRPLMessage, XRPLUserMessage, XRPLUserMessageWithPayload},
@@ -16,10 +15,12 @@ use xrpl_gateway::msg::InterchainTransfer;
 use crate::{
     config::Config,
     error::IngestorError,
-    gmp_api::GmpApi,
-    gmp_types::{
-        self, Amount, BroadcastRequest, CommonEventFields, ConstructProofTask, Event, Metadata,
-        QueryRequest, ReactToWasmEventTask, VerifyTask,
+    gmp_api::{
+        gmp_types::{
+            self, Amount, BroadcastRequest, CommonEventFields, ConstructProofTask, Event, Metadata,
+            QueryRequest, ReactToWasmEventTask, VerifyTask,
+        },
+        GmpApi,
     },
     payload_cache::PayloadCacheClient,
     utils::extract_from_xrpl_memo,

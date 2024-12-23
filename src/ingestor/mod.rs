@@ -9,16 +9,15 @@ use lapin::{
 use std::sync::Arc;
 use tokio::sync::watch;
 use tracing::{debug, error, info, warn};
+use xrpl_ingestor::XrplIngestor;
 
 use crate::{
     config::Config,
     error::IngestorError,
-    gmp_api::GmpApi,
-    gmp_types::Task,
+    gmp_api::{gmp_types::Task, GmpApi},
     queue::{Queue, QueueItem},
     subscriber::ChainTransaction,
 };
-use xrpl_ingestor::XrplIngestor;
 
 pub struct Ingestor {
     gmp_api: Arc<GmpApi>,

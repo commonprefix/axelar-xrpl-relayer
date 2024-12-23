@@ -4,7 +4,7 @@ use xrpl_api::Memo;
 
 use crate::{
     error::GmpApiError,
-    gmp_types::{
+    gmp_api::gmp_types::{
         CommonTaskFields, ConstructProofTask, ExecuteTask, GatewayTxTask, ReactToWasmEventTask,
         RefundTask, Task, VerifyTask,
     },

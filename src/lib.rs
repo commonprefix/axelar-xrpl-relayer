@@ -2,7 +2,6 @@ pub mod config;
 pub mod distributor;
 pub mod error;
 pub mod gmp_api;
-pub mod gmp_types;
 pub mod includer;
 pub mod ingestor;
 pub mod payload_cache;

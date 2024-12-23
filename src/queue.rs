@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 use uuid::Uuid;
 
-use crate::{gmp_types::Task, subscriber::ChainTransaction};
+use crate::{gmp_api::gmp_types::Task, subscriber::ChainTransaction};
 
 #[derive(Clone)]
 pub struct Queue {

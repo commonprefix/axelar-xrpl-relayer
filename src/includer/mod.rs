@@ -11,8 +11,10 @@ use tracing::{debug, error, info};
 
 use crate::{
     error::{BroadcasterError, IncluderError, RefundManagerError},
-    gmp_api::GmpApi,
-    gmp_types::{Amount, CommonEventFields, Event, Task},
+    gmp_api::{
+        gmp_types::{Amount, CommonEventFields, Event, Task},
+        GmpApi,
+    },
     queue::{Queue, QueueItem},
 };
 

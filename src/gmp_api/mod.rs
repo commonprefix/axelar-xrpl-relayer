@@ -1,3 +1,5 @@
+pub mod gmp_types;
+
 use async_stream::stream;
 use core::str;
 use futures::Stream;
@@ -7,11 +9,8 @@ use tracing::{debug, info, warn};
 
 use reqwest::Client;
 
-use crate::{
-    error::GmpApiError,
-    gmp_types::{BroadcastRequest, Event, PostEventResponse, PostEventResult, QueryRequest, Task},
-    utils::parse_task,
-};
+use crate::{error::GmpApiError, utils::parse_task};
+use gmp_types::{BroadcastRequest, Event, PostEventResponse, PostEventResult, QueryRequest, Task};
 
 pub struct GmpApi {
     rpc_url: String,
