@@ -1,5 +1,4 @@
 const express = require('express');
-const { v4: uuidv4 } = require('uuid'); // For generating UUIDs
 const bodyParser = require('body-parser');
 const app = express();
 const port = 3001;
@@ -8,7 +7,7 @@ const axios = require('axios');
 const exec = util.promisify(require('child_process').exec);
 const { spawn } = require('child_process');
 
-app.use(bodyParser.json());
+app.use(bodyParser.text());
 const AXELAR_SENDER = "mykey";
 const CHAIN_ID = "devnet-its";
 const GAS_PRICES = "0.00005uits";
@@ -17,7 +16,7 @@ const XRPL_GATEWAY = "axelar1cdqzna3q9w74fvvh9t6jyy8ggl8a9zpnulesz7qp2lhg04ersdk
 const MULTISIG = "axelar1466nf3zuxpya8q9emxukd7vftaf6h4psr0a07srl5zw74zh84yjq4687qd";
 const XRPL_MULTISIG_PROVER = "axelar1qctacr3chzqh24numquzaswx8cqk2urvxrd05vvml03sr7es2dnspcnj2g";
 const RPC_URL = "http://k8s-devnetit-coresent-3ea294cee9-0949c478b885da8a.elb.us-east-2.amazonaws.com:26657";
-const START_HEIGHT = 0;
+const START_HEIGHT = 994403;
 
 function spawnAsync(command, args = [], options = {}) {
     return new Promise((resolve, reject) => {
@@ -252,12 +251,15 @@ app.post('/contracts/:contract/broadcasts', async (req, res) => {
         const contract = req.params.contract;
 
         console.log(`Received broadcast for contract ${contract}:`);
-        console.log(JSON.stringify(req.body, null, 2));
+        let body;
+        try {
+            body = JSON.parse(req.body);
+        } catch (_) {
+            body = req.body;
+        }
+        console.log(JSON.stringify(body, null, 2));
 
-        const fromKey = "axelar1fxa3h6amruu77qvlkzezhm2qjvx37wq0z7mz56";
-        const chainId = "devnet-amplifier";
-        const gasPrices = "0.007uamplifier";
-        const command = `axelard tx wasm execute ${contract} '${JSON.stringify(req.body)}' \
+        const command = `axelard tx wasm execute ${contract} '${JSON.stringify(body)}' \
         --from ${AXELAR_SENDER} \
         --chain-id ${CHAIN_ID} \
         --gas auto \
@@ -269,40 +271,32 @@ app.post('/contracts/:contract/broadcasts', async (req, res) => {
         -y`;
 
         console.log("Executing axelard command: " + command);
-        if (req.body.verify_messages) {
+        if (body.verify_messages) {
             let command_res = (await exec(command)).stdout;
 
             // TODO: check if it was successfull
             // console.log(`\tVerifyMessages Response: ${command_res}`);
-            return res.status(204).send();
-        } else if (req.body.route_incoming_messages) {
+            return res.json(command_res);
+        } else if (body.route_incoming_messages) {
             let command_res = (await exec(command)).stdout;
 
             // console.log(`\tRouteIncomingMessages Response: ${command_res}`);
-            return res.status(204).send();
-            // TODO: implement its hub flow
-            // for (let message of req.body.route_incoming_messages) {
-            //     tasks.push({
-            //         id: task_autoincrement++,
-            //         chain: "xrpl",
-            //         timestamp: new Date().toISOString(),
-            //         type: "CONSTRUCT_PROOF",
-            //         meta: null,
-            //         task: {
-            //             message: its_message,
-            //             payload: "bW9yZV9leGFtcGxlX2RhdGE="
-            //         }
-            //     })
-            // }
-        } else if (req.body.construct_proof) {
+            return res.json(command_res);
+        } else if (body.construct_proof) {
             let command_res = (await exec(command)).stdout;
             // console.log(`\ConstructProof response: ${command_res}`);
-            return res.status(204).send();
+            return res.json(command_res);
+        } else if (body.confirm_tx_status) {
+            let command_res = (await exec(command)).stdout;
+            // console.log(`\SignMessages response: ${command_res}`);
+            return res.json(command_res);
+        } else if (body === "ticket_create") {
+            return res.json((await exec(command)).stdout);
         }
-        return res.status(404).send();
+        return res.status(404).json({ error: 'Unknown broadcast type' });
     } catch (error) {
         console.error(error);
-        return res.status(500).send('Error executing broadcast' + error.message);
+        return res.status(500).json({ error: error.message });
     }
     // console.log(`Command: ${command}`);
     // exec(command, (error, stdout, stderr) => {
