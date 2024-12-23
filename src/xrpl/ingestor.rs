@@ -188,13 +188,9 @@ impl XrplIngestor {
                     ))
                 }
             }
-            Transaction::TrustSet(_) => {
-                Err(IngestorError::UnsupportedTransaction("TrustSet".to_owned()))
-            }
-            Transaction::SignerListSet(_) => Err(IngestorError::UnsupportedTransaction(
-                "SignerListSet".to_owned(),
-            )),
             Transaction::TicketCreate(_) => self.handle_prover_tx(tx).await,
+            Transaction::TrustSet(_) => self.handle_prover_tx(tx).await,
+            Transaction::SignerListSet(_) => self.handle_prover_tx(tx).await,
             tx => Err(IngestorError::UnsupportedTransaction(
                 serde_json::to_string(&tx).unwrap(),
             )),
@@ -364,8 +360,8 @@ impl XrplIngestor {
         let common = match res.tx {
             Transaction::Payment(payment_transaction) => Ok(payment_transaction.common),
             Transaction::TicketCreate(common) => Ok(common),
-            Transaction::SignerListSet(_) => todo!(),
-            Transaction::TrustSet(_) => todo!(),
+            Transaction::SignerListSet(common) => Ok(common),
+            Transaction::TrustSet(trust_set_transaction) => Ok(trust_set_transaction.common),
             _ => Err(IngestorError::UnsupportedTransaction(
                 "Unsupported transaction type".to_owned(),
             )),
