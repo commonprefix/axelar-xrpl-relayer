@@ -1,16 +1,15 @@
-use std::{future::Future, pin::Pin, sync::Arc};
+pub mod xrpl_subscriber;
 
 use futures::Stream;
 use serde::{Deserialize, Serialize};
+use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::sync::watch;
 use tracing::{debug, error, info, warn};
 use xrpl_api::Transaction;
+use xrpl_subscriber::XrplSubscriber;
 use xrpl_types::AccountId;
 
-use crate::{
-    queue::{Queue, QueueItem},
-    xrpl_subscriber::XrplSubscriber,
-};
+use crate::queue::{Queue, QueueItem};
 
 pub trait TransactionListener {
     type Transaction;
