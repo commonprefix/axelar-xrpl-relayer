@@ -2,8 +2,13 @@ use dotenv::dotenv;
 use std::sync::Arc;
 
 use axelar_xrpl_relayer::{
-    config::Config, distributor::Distributor, gmp_api, ingestor::Ingestor, queue::Queue,
-    subscriber::Subscriber, xrpl::XrplIncluder,
+    config::Config,
+    distributor::Distributor,
+    gmp_api,
+    ingestor::Ingestor,
+    queue::Queue,
+    subscriber::Subscriber,
+    xrpl::{XrplIncluder, XrplTicketCreator},
 };
 use tokio::sync::watch;
 use tracing::{self, Level};
@@ -72,6 +77,14 @@ async fn main() {
         }
     });
 
+    let mut ticket_creator = XrplTicketCreator::new(gmp_api.clone(), config.clone());
+    let ticket_creator_handle = tokio::spawn({
+        let shutdown_rx = shutdown_rx.clone();
+        async move {
+            ticket_creator.run(shutdown_rx).await;
+        }
+    });
+
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {
             println!("Shutting down...");
@@ -83,6 +96,7 @@ async fn main() {
         subscriber_handle,
         includer_handle,
         ingestor_handle,
-        distributor_handle
+        distributor_handle,
+        ticket_creator_handle
     );
 }
