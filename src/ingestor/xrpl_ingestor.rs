@@ -3,7 +3,6 @@ use std::{collections::HashMap, sync::Arc, vec};
 
 use multisig::key::PublicKey;
 use router_api::CrossChainId;
-use serde::{Deserialize, Serialize};
 use tracing::debug;
 use xrpl_amplifier_types::{
     msg::{XRPLMessage, XRPLUserMessage, XRPLUserMessageWithPayload},
@@ -25,11 +24,6 @@ use crate::{
     payload_cache::PayloadCacheClient,
     utils::extract_from_xrpl_memo,
 };
-
-#[derive(Debug, Serialize, Deserialize)]
-pub enum QueryMsg {
-    GetITSMessage(XRPLUserMessage), // TODO: can this be imported?
-}
 
 fn extract_memo(memos: &Option<Vec<Memo>>, memo_type: &str) -> Result<String, IngestorError> {
     extract_from_xrpl_memo(memos.clone(), memo_type).map_err(|e| {
