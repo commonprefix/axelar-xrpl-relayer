@@ -143,14 +143,7 @@ impl GmpApi {
             .map_err(|e| GmpApiError::RequestFailed(e.to_string()))?;
 
         match res.error_for_status_ref() {
-            Ok(_) => {
-                let response = res
-                    .text()
-                    .await
-                    .map_err(|e| GmpApiError::InvalidResponse(e.to_string()))?;
-                info!("Response from broadcast: {:?}", response);
-                Ok(())
-            }
+            Ok(_) => Ok(()),
             Err(e) => Err(GmpApiError::ErrorResponse(e.to_string())),
         }
     }
