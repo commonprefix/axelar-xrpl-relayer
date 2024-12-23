@@ -24,7 +24,7 @@ async fn main() {
     let tasks_queue = Arc::new(Queue::new(&config.queue_address, "tasks").await);
     let events_queue = Arc::new(Queue::new(&config.queue_address, "events").await);
     let gmp_api = Arc::new(gmp_api::GmpApi::new(&config.gmp_api_url, "xrpl").unwrap());
-    let xrpl_includer = XRPLIncluder::new(config.clone()).await;
+    let xrpl_includer = XRPLIncluder::new(config.clone(), gmp_api.clone()).await;
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
     let account = AccountId::from_address(&config.multisig_address).unwrap();

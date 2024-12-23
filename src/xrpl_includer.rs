@@ -10,6 +10,7 @@ use xrpl_types::{AccountId, Amount};
 
 use crate::config::Config;
 use crate::error::{BroadcasterError, ClientError, RefundManagerError};
+use crate::gmp_api::GmpApi;
 use crate::includer::{Broadcaster, Includer, RefundManager};
 
 const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(3);
@@ -105,6 +106,7 @@ pub struct XRPLIncluder {}
 impl XRPLIncluder {
     pub async fn new<'a>(
         config: Config,
+        gmp_api: Arc<GmpApi>,
     ) -> Includer<XRPLBroadcaster, Arc<xrpl_http_client::Client>, XRPLRefundManager> {
         let client = Arc::new(XRPLClient::new_http_client(RPC_URL).unwrap());
 
@@ -119,6 +121,7 @@ impl XRPLIncluder {
             chain_client: client,
             broadcaster,
             refund_manager,
+            gmp_api,
         };
 
         includer

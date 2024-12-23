@@ -215,8 +215,6 @@ pub enum Event {
     CannotExecuteMessage {
         #[serde(flatten)]
         common: CommonEventFields,
-        #[serde(rename = "eventID")]
-        event_id: String,
         #[serde(rename = "taskItemID")]
         task_item_id: String,
         reason: String,

@@ -10,7 +10,8 @@ use tracing::{debug, error, info};
 
 use crate::{
     error::{BroadcasterError, IncluderError, RefundManagerError},
-    gmp_types::Task,
+    gmp_api::GmpApi,
+    gmp_types::{Amount, CommonEventFields, Event, Task},
     queue::{Queue, QueueItem},
 };
 
@@ -34,6 +35,7 @@ where
     pub chain_client: C,
     pub broadcaster: B,
     pub refund_manager: R,
+    pub gmp_api: Arc<GmpApi>,
 }
 
 impl<B, C, R> Includer<B, C, R>
@@ -103,10 +105,32 @@ where
         match task {
             QueueItem::Task(task) => match task {
                 Task::GatewayTx(gateway_tx_task) => {
-                    self.broadcaster
+                    let broadcast_result = self
+                        .broadcaster
                         .broadcast(gateway_tx_task.task.execute_data)
                         .await
-                        .map_err(|e| IncluderError::ConsumerError(e.to_string()))?;
+                        .map_err(|e| IncluderError::ConsumerError(e.to_string()));
+
+                    if broadcast_result.is_err() {
+                        let cannot_execute_message_event = Event::CannotExecuteMessage {
+                            common: CommonEventFields {
+                                r#type: "CANNOT_EXECUTE_MESSAGE".to_owned(),
+                                event_id: "foobar".to_owned(), // TODO
+                            },
+                            task_item_id: gateway_tx_task.common.id.to_string(),
+                            reason: broadcast_result.unwrap_err().to_string(),
+                            details: Amount {
+                                // TODO
+                                token_id: None,
+                                amount: "0".to_owned(),
+                            },
+                        };
+
+                        self.gmp_api
+                            .post_events(vec![cannot_execute_message_event])
+                            .await
+                            .map_err(|e| IncluderError::ConsumerError(e.to_string()))?;
+                    }
                     Ok(())
                 }
                 Task::Refund(refund_task) => {
