@@ -19,7 +19,7 @@ pub struct GmpApi {
     chain: String,
 }
 
-const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(3);
+const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(10);
 const TASKS_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 impl GmpApi {
