@@ -101,9 +101,9 @@ impl Broadcaster for XRPLBroadcaster {
     }
 }
 
-pub struct XRPLIncluder {}
+pub struct XrplIncluder {}
 
-impl XRPLIncluder {
+impl XrplIncluder {
     pub async fn new<'a>(
         config: Config,
         gmp_api: Arc<GmpApi>,

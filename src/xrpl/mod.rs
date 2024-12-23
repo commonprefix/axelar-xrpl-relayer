@@ -1,7 +1,7 @@
-mod xrpl_includer;
-mod xrpl_ingestor;
-mod xrpl_subscriber;
+mod includer;
+mod ingestor;
+mod subscriber;
 
-pub use xrpl_includer::XRPLIncluder;
-pub use xrpl_ingestor::XrplIngestor;
-pub use xrpl_subscriber::XrplSubscriber;
+pub use includer::XrplIncluder;
+pub use ingestor::XrplIngestor;
+pub use subscriber::XrplSubscriber;
