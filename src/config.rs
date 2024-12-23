@@ -12,7 +12,7 @@ pub struct Config {
     pub xrpl_rpc: String,
     pub multisig_address: String,
     pub xrpl_gateway_address: String,
-    pub multisig_prover_address: String,
+    pub xrpl_multisig_prover_address: String,
 }
 
 impl Config {
@@ -28,8 +28,8 @@ impl Config {
             multisig_address: env::var("MULTISIG_ADDRESS").context("Missing MULTISIG_ADDRESS")?,
             xrpl_gateway_address: env::var("XRPL_GATEWAY_ADDRESS")
                 .context("Missing XRPL_GATEWAY_ADDRESS")?,
-            multisig_prover_address: env::var("MULTISIG_PROVER_ADDRESS")
-                .context("Missing MULTISIG_PROVER_ADDRESS")?,
+            xrpl_multisig_prover_address: env::var("XRPL_MULTISIG_PROVER_ADDRESS")
+                .context("Missing XRPL_MULTISIG_PROVER_ADDRESS")?,
         })
     }
 }
