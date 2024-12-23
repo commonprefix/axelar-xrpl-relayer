@@ -1,9 +1,11 @@
 use core::str;
 use std::{collections::HashMap, sync::Arc, vec};
 
-use multisig::key::PublicKey;
+use multisig::key::{KeyType, PublicKey};
 use router_api::CrossChainId;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use tracing::debug;
 use xrpl_amplifier_types::{
     msg::{XRPLMessage, XRPLUserMessage, XRPLUserMessageWithPayload},
     types::TxHash,
@@ -50,7 +52,8 @@ async fn build_xrpl_user_message(
 
     let destination_address = extract_memo(memos, "destination_address")?;
     let destination_chain = extract_memo(memos, "destination_chain")?;
-    let deposit_amount = extract_memo(memos, "deposit")?;
+    // let deposit_amount = extract_memo(memos, "deposit")?;
+    let deposit_amount = payment.amount.size().to_string(); // TODO: get from memo
     let payload_hash_memo = extract_memo(memos, "payload_hash");
     let payload_memo = extract_memo(memos, "payload");
     let payload;
@@ -309,12 +312,13 @@ impl XrplIngestor {
                 "Payment transaction missing field 'hash'".to_owned(),
             ))?;
         let total_amount = payment.amount.size() as u64; // TODO: size should probably not be used
-        let deposit_amount_memo = extract_memo(&payment.common.memos, "deposit")?;
-        let deposit_amount = str::from_utf8(hex::decode(deposit_amount_memo).unwrap().as_slice())
-            .unwrap()
-            .to_string()
-            .parse::<u64>()
-            .unwrap(); // TODO: should this be a u64?
+        let deposit_amount = total_amount; // TODO: get from memo
+                                           // let deposit_amount_memo = extract_memo(&payment.common.memos, "deposit")?;
+                                           // let deposit_amount = str::from_utf8(hex::decode(deposit_amount_memo).unwrap().as_slice())
+                                           //     .unwrap()
+                                           //     .to_string()
+                                           //     .parse::<u64>()
+                                           //     .unwrap(); // TODO: should this be a u64?
         let gas_amount = total_amount - deposit_amount;
         Ok(Event::GasCredit {
             common: CommonEventFields {
@@ -390,17 +394,20 @@ impl XrplIngestor {
                 )?;
                 let signers_keys = signers
                     .iter()
-                    .map(|signer| serde_json::from_str(&signer.signing_pub_key).unwrap())
+                    .map(|signer| {
+                        serde_json::from_str::<PublicKey>(&format!(
+                            "{{ \"ecdsa\": \"{}\"}}", // TODO: beautify
+                            signer.signer.signing_pub_key
+                        ))
+                        .unwrap()
+                    })
                     .collect::<Vec<PublicKey>>();
 
                 let execute_msg = xrpl_multisig_prover::msg::ExecuteMsg::ConfirmTxStatus {
                     signer_public_keys: signers_keys,
                     signed_tx_hash: TxHash::new(
-                        payment_transaction
-                            .common
-                            .hash
+                        hex::decode(payment_transaction.common.hash.unwrap())
                             .unwrap()
-                            .as_bytes()
                             .try_into()
                             .unwrap(),
                     ),
@@ -441,13 +448,17 @@ impl XrplIngestor {
                 let xrpl_message = task.task.message.clone();
                 let (contract_address, request) = match xrpl_message.clone() {
                     XRPLMessage::UserMessage(user_message) => {
+                        debug!("Quorum reached for XRPLUserMessage: {:?}", user_message);
                         self.user_message_routing_request(user_message)?
                     }
                     XRPLMessage::ProverMessage(tx_hash) => {
+                        debug!("Quorum reached for XRPLProverMessage: {:?}", tx_hash);
                         self.prover_tx_routing_request(tx_hash).await?
                     }
                 };
+                debug!("Broadcasting request: {:?}", request);
 
+                // TODO: think what happens on failure. This shouldn't happen.
                 self.gmp_api
                     .post_broadcast(contract_address, &request)
                     .await

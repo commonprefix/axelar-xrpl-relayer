@@ -1,11 +1,12 @@
-use core::str;
-use std::sync::Arc;
+pub mod xrpl_ingestor;
 
+use core::str;
 use futures::StreamExt;
 use lapin::{
     options::{BasicAckOptions, BasicNackOptions},
     Consumer,
 };
+use std::sync::Arc;
 use tokio::sync::watch;
 use tracing::{debug, error, info, warn};
 
@@ -16,8 +17,8 @@ use crate::{
     gmp_types::Task,
     queue::{Queue, QueueItem},
     subscriber::ChainTransaction,
-    xrpl_ingestor::XrplIngestor,
 };
+use xrpl_ingestor::XrplIngestor;
 
 pub struct Ingestor {
     gmp_api: Arc<GmpApi>,
