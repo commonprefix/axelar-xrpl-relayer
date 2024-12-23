@@ -175,13 +175,13 @@ impl XrplIngestor {
     }
 
     pub async fn handle_transaction(&self, tx: Transaction) -> Result<Vec<Event>, IngestorError> {
-        match tx {
+        match tx.clone() {
             Transaction::Payment(payment) => {
                 if payment.destination == self.config.multisig_address {
                     self.handle_payment(payment).await
                 } else if payment.common.account == self.config.multisig_address {
                     // prover message
-                    self.handle_prover_tx(payment).await
+                    self.handle_prover_tx(tx).await
                 } else {
                     Err(IngestorError::UnsupportedTransaction(
                         serde_json::to_string(&payment).unwrap(),
@@ -194,9 +194,7 @@ impl XrplIngestor {
             Transaction::SignerListSet(_) => Err(IngestorError::UnsupportedTransaction(
                 "SignerListSet".to_owned(),
             )),
-            Transaction::TicketCreate(_) => Err(IngestorError::UnsupportedTransaction(
-                "TicketCreate".to_owned(),
-            )),
+            Transaction::TicketCreate(_) => self.handle_prover_tx(tx).await,
             tx => Err(IngestorError::UnsupportedTransaction(
                 serde_json::to_string(&tx).unwrap(),
             )),
@@ -213,13 +211,10 @@ impl XrplIngestor {
         return Ok(vec![call_event, gas_credit_event]);
     }
 
-    pub async fn handle_prover_tx(
-        &self,
-        payment: PaymentTransaction,
-    ) -> Result<Vec<Event>, IngestorError> {
+    pub async fn handle_prover_tx(&self, tx: Transaction) -> Result<Vec<Event>, IngestorError> {
         let execute_msg =
             xrpl_gateway::msg::ExecuteMsg::VerifyMessages(vec![XRPLMessage::ProverMessage(
-                hex::decode(payment.common.hash.unwrap())
+                hex::decode(tx.common().hash.clone().unwrap())
                     .unwrap()
                     .as_slice()
                     .try_into()
@@ -346,8 +341,7 @@ impl XrplIngestor {
                 user_message.clone(),
             )]);
         let request = BroadcastRequest::Generic(serde_json::to_value(&execute_msg).unwrap());
-        Ok(self
-            .gmp_api
+        self.gmp_api
             .post_broadcast(self.config.xrpl_gateway_address.clone(), &request)
             .await
             .map_err(|e| {
@@ -355,7 +349,8 @@ impl XrplIngestor {
                     "Failed to broadcast message: {}",
                     e.to_string()
                 ))
-            })?)
+            })?;
+        Ok(())
     }
 
     pub async fn prover_tx_routing_request(
@@ -366,59 +361,57 @@ impl XrplIngestor {
         let res = self.client.call(tx_request).await.map_err(|e| {
             IngestorError::GenericError(format!("Failed to get transaction: {}", e.to_string()))
         })?;
-        match res.tx {
-            Transaction::Payment(payment_transaction) => {
-                let multisig_session_id_hex =
-                    extract_from_xrpl_memo(payment_transaction.common.memos, "multisig_session_id")
-                        .map_err(|e| {
-                            IngestorError::GenericError(format!(
-                                "Failed to extract multisig_session_id from memos: {}",
-                                e.to_string()
-                            ))
-                        })?;
-                let multisig_session_id = u64::from_str_radix(&multisig_session_id_hex, 16)
-                    .map_err(|e| {
-                        IngestorError::GenericError(format!(
-                            "Failed to parse multisig_session_id: {}",
-                            e.to_string()
-                        ))
-                    })?;
-
-                let signers = payment_transaction.common.signers.clone().ok_or(
-                    IngestorError::GenericError("Payment transaction missing signers".to_owned()),
-                )?;
-                let signers_keys = signers
-                    .iter()
-                    .map(|signer| {
-                        serde_json::from_str::<PublicKey>(&format!(
-                            "{{ \"ecdsa\": \"{}\"}}", // TODO: beautify
-                            signer.signer.signing_pub_key
-                        ))
-                        .unwrap()
-                    })
-                    .collect::<Vec<PublicKey>>();
-
-                let execute_msg = xrpl_multisig_prover::msg::ExecuteMsg::ConfirmTxStatus {
-                    signer_public_keys: signers_keys,
-                    signed_tx_hash: TxHash::new(
-                        hex::decode(payment_transaction.common.hash.unwrap())
-                            .unwrap()
-                            .try_into()
-                            .unwrap(),
-                    ),
-                    multisig_session_id: multisig_session_id.try_into().unwrap(),
-                };
-                let request =
-                    BroadcastRequest::Generic(serde_json::to_value(&execute_msg).unwrap());
-                Ok((self.config.multisig_address.clone(), request))
-            }
+        let common = match res.tx {
+            Transaction::Payment(payment_transaction) => Ok(payment_transaction.common),
+            Transaction::TicketCreate(common) => Ok(common),
             Transaction::SignerListSet(_) => todo!(),
-            Transaction::TicketCreate(_) => todo!(),
             Transaction::TrustSet(_) => todo!(),
             _ => Err(IngestorError::UnsupportedTransaction(
                 "Unsupported transaction type".to_owned(),
             )),
-        }
+        }?;
+
+        let multisig_session_id_hex = extract_from_xrpl_memo(common.memos, "multisig_session_id")
+            .map_err(|e| {
+            IngestorError::GenericError(format!(
+                "Failed to extract multisig_session_id from memos: {}",
+                e.to_string()
+            ))
+        })?;
+        let multisig_session_id =
+            u64::from_str_radix(&multisig_session_id_hex, 16).map_err(|e| {
+                IngestorError::GenericError(format!(
+                    "Failed to parse multisig_session_id: {}",
+                    e.to_string()
+                ))
+            })?;
+
+        let signers = common.signers.clone().ok_or(IngestorError::GenericError(
+            "Payment transaction missing signers".to_owned(),
+        ))?;
+        let signers_keys = signers
+            .iter()
+            .map(|signer| {
+                serde_json::from_str::<PublicKey>(&format!(
+                    "{{ \"ecdsa\": \"{}\"}}", // TODO: beautify
+                    signer.signer.signing_pub_key
+                ))
+                .unwrap()
+            })
+            .collect::<Vec<PublicKey>>();
+
+        let execute_msg = xrpl_multisig_prover::msg::ExecuteMsg::ConfirmTxStatus {
+            signer_public_keys: signers_keys,
+            signed_tx_hash: TxHash::new(
+                hex::decode(common.hash.unwrap())
+                    .unwrap()
+                    .try_into()
+                    .unwrap(),
+            ),
+            multisig_session_id: multisig_session_id.try_into().unwrap(),
+        };
+        let request = BroadcastRequest::Generic(serde_json::to_value(&execute_msg).unwrap());
+        Ok((self.config.xrpl_multisig_prover_address.clone(), request))
     }
 
     pub fn user_message_routing_request(
@@ -520,8 +513,7 @@ impl XrplIngestor {
         };
 
         let request = BroadcastRequest::Generic(serde_json::to_value(&execute_msg).unwrap());
-        Ok(self
-            .gmp_api
+        self.gmp_api
             .post_broadcast(self.config.xrpl_multisig_prover_address.clone(), &request)
             .await
             .map_err(|e| {
@@ -529,6 +521,7 @@ impl XrplIngestor {
                     "Failed to broadcast message: {}",
                     e.to_string()
                 ))
-            })?)
+            })?;
+        Ok(())
     }
 }

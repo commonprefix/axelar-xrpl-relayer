@@ -103,7 +103,8 @@ impl GmpApi {
         let res = self
             .client
             .post(&format!("{}/chains/{}/events", self.rpc_url, self.chain))
-            .json(&map)
+            .body(serde_json::to_string(&map).unwrap())
+            .header("Content-Type", "text/plain")
             .send()
             .await
             .map_err(|e| GmpApiError::RequestFailed(e.to_string()))?;
@@ -125,7 +126,7 @@ impl GmpApi {
         &self,
         contract_address: String,
         data: &BroadcastRequest,
-    ) -> Result<(), GmpApiError> {
+    ) -> Result<String, GmpApiError> {
         let payload = match data {
             BroadcastRequest::Generic(value) => value,
         };
@@ -136,14 +137,18 @@ impl GmpApi {
                 "{}/contracts/{}/broadcasts",
                 self.rpc_url, contract_address
             ))
-            .json(&payload)
+            .body(serde_json::to_string(payload).unwrap())
+            .header("Content-Type", "text/plain")
             .send()
             .await
             .map_err(|e| GmpApiError::RequestFailed(e.to_string()))?;
 
-        match res.error_for_status_ref() {
-            Ok(_) => Ok(()),
-            Err(e) => Err(GmpApiError::ErrorResponse(e.to_string())),
+        let status = res.status();
+        let body = res.text().await.unwrap();
+        if status.is_success() {
+            return Ok(body);
+        } else {
+            return Err(GmpApiError::ErrorResponse(body));
         }
     }
 
@@ -162,7 +167,8 @@ impl GmpApi {
                 "{}/contracts/{}/queries",
                 self.rpc_url, contract_address
             ))
-            .json(&payload)
+            .body(serde_json::to_string(payload).unwrap())
+            .header("Content-Type", "text/plain")
             .send()
             .await
             .map_err(|e| GmpApiError::RequestFailed(e.to_string()))?;
