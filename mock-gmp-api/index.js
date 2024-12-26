@@ -9,8 +9,8 @@ const exec = util.promisify(require('child_process').exec);
 const { spawn } = require('child_process');
 
 app.use(bodyParser.text());
-const AXELAR_SENDER = "mykey";
-const START_HEIGHT = 994403;
+const AXELAR_SENDER = "governance";
+const START_HEIGHT = 0;
 
 function spawnAsync(command, args = [], options = {}) {
     return new Promise((resolve, reject) => {
