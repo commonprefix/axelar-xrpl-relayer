@@ -177,9 +177,9 @@ impl XrplIngestor {
     pub async fn handle_transaction(&self, tx: Transaction) -> Result<Vec<Event>, IngestorError> {
         match tx.clone() {
             Transaction::Payment(payment) => {
-                if payment.destination == self.config.multisig_address {
+                if payment.destination == self.config.xrpl_multisig {
                     self.handle_payment(payment).await
-                } else if payment.common.account == self.config.multisig_address {
+                } else if payment.common.account == self.config.xrpl_multisig {
                     // prover message
                     self.handle_prover_tx(tx).await
                 } else {

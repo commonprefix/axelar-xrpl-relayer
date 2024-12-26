@@ -1,13 +1,8 @@
-const util = require('util');
+require('dotenv').config({path: __dirname + '/../.env'});
 const axios = require('axios');
 const { spawn } = require('child_process');
 
-const AXELARNET_GATEWAY = "axelar13pchrk4hp0kds88jpwup6z65qhtrnp9068nuy2akx0mx302sw9wqzp74y0";
-const RPC_URL = "http://k8s-devnetit-coresent-3ea294cee9-0949c478b885da8a.elb.us-east-2.amazonaws.com:26657";
 const AXELAR_SENDER = "mykey";
-const CHAIN_ID = "devnet-its";
-const GAS_PRICES = "0.00005uits";
-const XRPL_GATEWAY = "axelar1cdqzna3q9w74fvvh9t6jyy8ggl8a9zpnulesz7qp2lhg04ersdkq33r34a";
 
 function spawnAsync(command, args = [], options = {}) {
     return new Promise((resolve, reject) => {
@@ -52,7 +47,7 @@ async function fetch_events(event_type, contract, from_height) {
     const args = [
         'q', 'txs',
         '--events', `tx.height>${from_height} AND wasm-${event_type}._contract_address=${contract}`,
-        '--node', RPC_URL,
+        '--node', process.env.AXELAR_RPC_URL,
         '--limit', '100',
         '--output', 'json'
     ]
@@ -92,7 +87,7 @@ async function get_current_axelar_height() {
     const command = 'axelard';
     const args = [
         'status',
-        '--node', RPC_URL,
+        '--node', process.env.AXELAR_RPC_URL,
     ];
 
     let result = JSON.parse((await spawnAsync(command, args)).stderr); // stderr contains the JSON output
@@ -107,7 +102,7 @@ async function get_current_axelar_height() {
     let latest_height = current_height;
     while (true) {
         console.log("Fetching events from height:", latest_height);
-        let routing_events = await fetch_events('routing', AXELARNET_GATEWAY, latest_height);
+        let routing_events = await fetch_events('routing', process.env.AXELARNET_GATEWAY, latest_height);
         for (let { event, height, tx } of routing_events) {
             let destination_chain = event.attributes.find(attr => attr.key === "destination_chain").value;
             if (destination_chain !== 'axelar') {
@@ -122,7 +117,7 @@ async function get_current_axelar_height() {
             let original_payload = null;
             if (source_chain == 'xrpl') {
                 for (let log of tx.logs) {
-                    let contract_called = log.events.find(event => (event.type === "wasm-contract_called" && event.attributes.find(attr => attr.key === "_contract_address").value === XRPL_GATEWAY));
+                    let contract_called = log.events.find(event => (event.type === "wasm-contract_called" && event.attributes.find(attr => attr.key === "_contract_address").value === process.env.XRPL_GATEWAY_ADDRESS));
                     original_payload = contract_called.attributes.find(attr => attr.key === "payload").value;
                     console.log("XRPL message: got payload from ContractCalled event:");
                     console.log(original_payload);
@@ -147,15 +142,15 @@ async function get_current_axelar_height() {
 
             const command = 'axelard';
             const args = [
-                'tx', 'wasm', 'execute', AXELARNET_GATEWAY, JSON.stringify(execute_msg),
+                'tx', 'wasm', 'execute', process.env.AXELARNET_GATEWAY, JSON.stringify(execute_msg),
                 '--from', AXELAR_SENDER,
-                '--chain-id', CHAIN_ID,
+                '--chain-id', process.env.AXELAR_CHAIN_ID,
                 '--gas', 'auto',
                 '--gas-adjustment', '1.4',
-                '--gas-prices', GAS_PRICES,
+                '--gas-prices', process.env.AXELAR_GAS_PRICES,
                 '--output', 'json',
                 '--keyring-backend', 'test',
-                '--node', RPC_URL,
+                '--node', process.env.AXELAR_RPC_URL,
                 '-y'
             ];
             let execute_res = JSON.parse((await spawnAsync(command, args)).stdout);
@@ -163,7 +158,7 @@ async function get_current_axelar_height() {
             for (let log of execute_res.logs) {
                 for (let event of log.events) {
                     if (event.type === "wasm-contract_called") {
-                        if (event.attributes.find(attr => attr.key === "_contract_address").value === AXELARNET_GATEWAY) {
+                        if (event.attributes.find(attr => attr.key === "_contract_address").value === process.env.AXELARNET_GATEWAY) {
                             its_payload = event.attributes.find(attr => attr.key === "payload").value;
                             its_payload_hash = event.attributes.find(attr => attr.key === "payload_hash").value;
                             console.log(`Posting Payload: ${its_payload}`);

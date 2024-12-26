@@ -32,7 +32,7 @@ async fn main() {
     let xrpl_includer = XrplIncluder::new(config.clone(), gmp_api.clone()).await;
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    let account = AccountId::from_address(&config.multisig_address).unwrap();
+    let account = AccountId::from_address(&config.xrpl_multisig).unwrap();
 
     let mut subscriber = Subscriber::new_xrpl(&config.xrpl_rpc).await;
     let events_queue_ref = events_queue.clone();
@@ -77,7 +77,7 @@ async fn main() {
         }
     });
 
-    let mut ticket_creator = XrplTicketCreator::new(gmp_api.clone(), config.clone());
+    let ticket_creator = XrplTicketCreator::new(gmp_api.clone(), config.clone());
     let ticket_creator_handle = tokio::spawn({
         let shutdown_rx = shutdown_rx.clone();
         async move {

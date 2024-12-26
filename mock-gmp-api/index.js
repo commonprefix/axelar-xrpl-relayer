@@ -1,3 +1,4 @@
+require('dotenv').config({path: __dirname + '/../.env'});
 const express = require('express');
 const bodyParser = require('body-parser');
 const app = express();
@@ -9,13 +10,6 @@ const { spawn } = require('child_process');
 
 app.use(bodyParser.text());
 const AXELAR_SENDER = "mykey";
-const CHAIN_ID = "devnet-its";
-const GAS_PRICES = "0.00005uits";
-const XRPL_VOTING_VERIFIER = "axelar1d2k8pc4fkaleh2kgj7ghsg0r5tshh94tfuqnmpfxd3hfa2rn96lsqwmdyr";
-const XRPL_GATEWAY = "axelar1cdqzna3q9w74fvvh9t6jyy8ggl8a9zpnulesz7qp2lhg04ersdkq33r34a";
-const MULTISIG = "axelar1466nf3zuxpya8q9emxukd7vftaf6h4psr0a07srl5zw74zh84yjq4687qd";
-const XRPL_MULTISIG_PROVER = "axelar1qctacr3chzqh24numquzaswx8cqk2urvxrd05vvml03sr7es2dnspcnj2g";
-const RPC_URL = "http://k8s-devnetit-coresent-3ea294cee9-0949c478b885da8a.elb.us-east-2.amazonaws.com:26657";
 const START_HEIGHT = 994403;
 
 function spawnAsync(command, args = [], options = {}) {
@@ -64,7 +58,7 @@ async function get_current_axelar_height() {
     const command = 'axelard';
     const args = [
         'status',
-        '--node', RPC_URL,
+        '--node', process.env.AXELAR_RPC_URL,
     ];
 
     let result = JSON.parse((await spawnAsync(command, args)).stderr); // stderr contains the JSON output
@@ -76,7 +70,7 @@ async function get_current_axelar_height() {
 async function fetch_events(event_type, contract, from_height) {
     const command = `axelard q txs \
     --events 'tx.height>${from_height} AND wasm-${event_type}._contract_address=${contract}' \
-    --node ${RPC_URL} \
+    --node ${process.env.AXELAR_RPC_URL} \
     --limit 100 \
     --output json`;
 
@@ -107,9 +101,9 @@ let cc_id_to_message = {};
     let latest_height = START_HEIGHT || await get_current_axelar_height();
     while (true) {
         let events = (await Promise.all([
-            fetch_events('quorum_reached', XRPL_VOTING_VERIFIER, latest_height),
-            fetch_events('routing_outgoing', XRPL_GATEWAY, latest_height),
-            fetch_events('signing_completed', MULTISIG, latest_height)
+            fetch_events('quorum_reached', process.env.XRPL_VOTING_VERIFIER_ADDRESS, latest_height),
+            fetch_events('routing_outgoing', process.env.XRPL_GATEWAY_ADDRESS, latest_height),
+            fetch_events('signing_completed', process.env.MULTISIG_CONTRACT_ADDRESS, latest_height)
         ])).flat();
         for (let { event, height } of events) {
             height = Number(height);
@@ -174,7 +168,7 @@ let cc_id_to_message = {};
                         multisig_session_id: session_id
                     }
                 };
-                const command = `axelard q wasm contract-state smart ${XRPL_MULTISIG_PROVER} '${JSON.stringify(query)}' --node ${RPC_URL} --output json`;
+                const command = `axelard q wasm contract-state smart ${process.env.XRPL_MULTISIG_PROVER_ADDRESS} '${JSON.stringify(query)}' --node ${process.env.AXELAR_RPC_URL} --output json`;
                 let execute_res = JSON.parse((await exec(command)).stdout);
                 task = {
                     id: height,
@@ -261,13 +255,13 @@ app.post('/contracts/:contract/broadcasts', async (req, res) => {
 
         const command = `axelard tx wasm execute ${contract} '${JSON.stringify(body)}' \
         --from ${AXELAR_SENDER} \
-        --chain-id ${CHAIN_ID} \
+        --chain-id ${process.env.AXELAR_CHAIN_ID} \
         --gas auto \
         --gas-adjustment 1.4 \
-        --gas-prices ${GAS_PRICES} \
+        --gas-prices ${process.env.AXELAR_GAS_PRICES} \
         --output json \
         --keyring-backend test \
-        --node ${RPC_URL} \
+        --node ${process.env.AXELAR_RPC_URL} \
         -y`;
 
         console.log("Executing axelard command: " + command);
@@ -320,7 +314,7 @@ app.post('/contracts/:contract/queries', (req, res) => {
     console.log(JSON.stringify(req.body, null, 2));
 
     const query = JSON.stringify(req.body);
-    const command = `axelard q wasm contract-state smart ${contract} '${query}' --node ${RPC_URL} --output json`;
+    const command = `axelard q wasm contract-state smart ${contract} '${query}' --node ${process.env.AXELAR_RPC_URL} --output json`;
     console.log("Executing axelard command: " + command);
     exec(command, (error, stdout, stderr) => {
         if (error) {
