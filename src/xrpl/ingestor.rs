@@ -47,7 +47,7 @@ async fn build_xrpl_user_message(
 
     let destination_address = extract_memo(memos, "destination_address")?;
     let destination_chain = extract_memo(memos, "destination_chain")?;
-    // let deposit_amount = extract_memo(memos, "deposit")?;
+    // let gas_fee_amount = extract_memo(memos, "gas_fee_amount")?;
     let deposit_amount = payment.amount.size().to_string(); // TODO: get from memo
     let payload_hash_memo = extract_memo(memos, "payload_hash");
     let payload_memo = extract_memo(memos, "payload");
@@ -121,7 +121,7 @@ async fn build_xrpl_user_message(
 
     if payload_hash.is_some() {
         message_with_payload.message.payload_hash =
-            Some(hex::decode(payload_hash).unwrap().try_into().unwrap())
+            Some(hex::decode(payload_hash.unwrap()).unwrap().try_into().unwrap())
     }
 
     if payload.is_some() {
