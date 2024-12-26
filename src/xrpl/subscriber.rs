@@ -14,7 +14,7 @@ impl XrplSubscriber {
         let client = xrpl_http_client::Client::builder().base_url(url).build();
         XrplSubscriber {
             client,
-            latest_ledger: 6923589,
+            latest_ledger: 7003162,
         }
     }
 }
