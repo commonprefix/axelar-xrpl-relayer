@@ -60,35 +60,33 @@ async fn build_xrpl_user_message(
         ));
     } else if payload_memo.is_ok() {
         payload = Some(payload_memo.unwrap());
-        payload_hash = payload_cache
-            .store_payload(&payload.clone().unwrap())
-            .await
-            .map_err(|e| {
-                IngestorError::GenericError(format!(
-                    "Failed to store payload in cache: {}",
-                    e.to_string()
-                ))
-            })?;
+        payload_hash = Some(
+            payload_cache
+                .store_payload(&payload.clone().unwrap())
+                .await
+                .map_err(|e| {
+                    IngestorError::GenericError(format!(
+                        "Failed to store payload in cache: {}",
+                        e.to_string()
+                    ))
+                })?,
+        );
     } else if payload_hash_memo.is_ok() {
-        payload_hash = payload_hash_memo.unwrap();
-        if payload_hash == "0".repeat(64) {
-            payload = None;
-        } else {
-            payload = Some(
-                payload_cache
-                    .get_payload(&hex::encode(payload_hash.clone()))
-                    .await
-                    .map_err(|e| {
-                        IngestorError::GenericError(format!(
-                            "Failed to get payload from cache: {}",
-                            e.to_string()
-                        ))
-                    })?,
-            );
-        }
+        payload_hash = Some(payload_hash_memo.unwrap());
+        payload = Some(
+            payload_cache
+                .get_payload(&hex::encode(payload_hash.clone().unwrap()))
+                .await
+                .map_err(|e| {
+                    IngestorError::GenericError(format!(
+                        "Failed to get payload from cache: {}",
+                        e.to_string()
+                    ))
+                })?,
+        );
     } else {
         payload = None;
-        payload_hash = "0".repeat(64);
+        payload_hash = None;
     }
 
     let mut message_with_payload = XRPLUserMessageWithPayload {
@@ -107,7 +105,7 @@ async fn build_xrpl_user_message(
                 .unwrap()
                 .try_into()
                 .unwrap(),
-            payload_hash: hex::decode(payload_hash).unwrap().try_into().unwrap(),
+            payload_hash: None,
             amount: xrpl_amplifier_types::types::XRPLPaymentAmount::Drops(
                 payment.amount.size() as u64
             ), // TODO: Recover this
@@ -120,6 +118,11 @@ async fn build_xrpl_user_message(
         },
         payload: None,
     };
+
+    if payload_hash.is_some() {
+        message_with_payload.message.payload_hash =
+            Some(hex::decode(payload_hash).unwrap().try_into().unwrap())
+    }
 
     if payload.is_some() {
         message_with_payload.payload =
