@@ -138,8 +138,10 @@ impl XrplIncluder {
         Includer<XRPLBroadcaster, Arc<xrpl_http_client::Client>, XRPLRefundManager>,
         BroadcasterError,
     > {
-        // ) -> Includer<XRPLBroadcaster, Arc<xrpl_http_client::Client>, XRPLRefundManager> {
-        let client = Arc::new(XRPLClient::new_http_client(RPC_URL).unwrap());
+        let client =
+            Arc::new(XRPLClient::new_http_client(RPC_URL).map_err(|e| {
+                error_stack::report!(BroadcasterError::GenericError(e.to_string()))
+            })?);
 
         let broadcaster = XRPLBroadcaster::new(Arc::clone(&client))
             .map_err(|e| e.attach_printable("Failed to create XRPLBroadcaster"))?;

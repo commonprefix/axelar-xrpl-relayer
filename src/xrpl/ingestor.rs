@@ -6,7 +6,7 @@ use router_api::CrossChainId;
 use tracing::debug;
 use xrpl_amplifier_types::{
     msg::{XRPLMessage, XRPLUserMessage, XRPLUserMessageWithPayload},
-    types::TxHash,
+    types::{TxHash, XRPLAccountId},
 };
 use xrpl_api::{Memo, PaymentTransaction, Transaction, TxRequest};
 use xrpl_gateway::msg::InterchainTransfer;
@@ -27,11 +27,7 @@ use crate::{
 
 fn extract_memo(memos: &Option<Vec<Memo>>, memo_type: &str) -> Result<String, IngestorError> {
     extract_from_xrpl_memo(memos.clone(), memo_type).map_err(|e| {
-        IngestorError::GenericError(format!(
-            "Failed to extract {} from memos: {}",
-            memo_type,
-            e.to_string()
-        ))
+        IngestorError::GenericError(format!("Failed to extract {} from memos: {}", memo_type, e))
     })
 }
 
@@ -51,60 +47,64 @@ async fn build_xrpl_user_message(
     let deposit_amount = payment.amount.size().to_string(); // TODO: get from memo
     let payload_hash_memo = extract_memo(memos, "payload_hash");
     let payload_memo = extract_memo(memos, "payload");
-    let payload;
-    let payload_hash;
 
+    // Payment transaction must not contain both 'payload' and 'payload_hash' memos.
     if payload_memo.is_ok() && payload_hash_memo.is_ok() {
         return Err(IngestorError::GenericError(
             "Payment transaction cannot have both 'payload' and 'payload_hash' memos".to_owned(),
         ));
-    } else if payload_memo.is_ok() {
-        payload = Some(payload_memo.unwrap());
-        payload_hash = Some(
-            payload_cache
-                .store_payload(&payload.clone().unwrap())
-                .await
-                .map_err(|e| {
-                    IngestorError::GenericError(format!(
-                        "Failed to store payload in cache: {}",
-                        e.to_string()
-                    ))
-                })?,
-        );
-    } else if payload_hash_memo.is_ok() {
-        payload_hash = Some(payload_hash_memo.unwrap());
-        payload = Some(
-            payload_cache
-                .get_payload(&hex::encode(payload_hash.clone().unwrap()))
-                .await
-                .map_err(|e| {
-                    IngestorError::GenericError(format!(
-                        "Failed to get payload from cache: {}",
-                        e.to_string()
-                    ))
-                })?,
-        );
-    } else {
-        payload = None;
-        payload_hash = None;
     }
+
+    let (payload, payload_hash) = if let Ok(payload_str) = payload_memo {
+        // If we have 'payload', store it in the cache and receive the payload_hash.
+        let hash = payload_cache
+            .store_payload(&payload_str)
+            .await
+            .map_err(|e| {
+                IngestorError::GenericError(format!("Failed to store payload in cache: {}", e))
+            })?;
+        (Some(payload_str), Some(hash))
+    } else if let Ok(payload_hash_str) = payload_hash_memo {
+        // If we have 'payload_hash', retrieve payload from the cache.
+        let payload_retrieved = payload_cache
+            .get_payload(&hex::encode(&payload_hash_str))
+            .await
+            .map_err(|e| {
+                IngestorError::GenericError(format!("Failed to get payload from cache: {}", e))
+            })?;
+        (Some(payload_retrieved), Some(payload_hash_str))
+    } else {
+        (None, None)
+    };
+
+    let tx_id_bytes = hex::decode(&tx_hash)
+        .map_err(|_| IngestorError::GenericError("Failed to hex-decode tx_id".into()))?;
+
+    let source_address_bytes: XRPLAccountId = payment
+        .common
+        .account
+        .clone()
+        .try_into()
+        .map_err(|e| IngestorError::GenericError(format!("Invalid source account: {:?}", e)))?;
+
+    let destination_addr_bytes = hex::decode(destination_address).map_err(|e| {
+        IngestorError::GenericError(format!("Failed to decode destination_address: {}", e))
+    })?;
+
+    let destination_chain_bytes = hex::decode(destination_chain).map_err(|e| {
+        IngestorError::GenericError(format!("Failed to decode destination_chain: {}", e))
+    })?;
+
+    let destination_chain_str = str::from_utf8(&destination_chain_bytes).map_err(|e| {
+        IngestorError::GenericError(format!("Invalid UTF-8 in destination_chain: {}", e))
+    })?;
 
     let mut message_with_payload = XRPLUserMessageWithPayload {
         message: XRPLUserMessage {
-            tx_id: hex::decode(tx_hash.clone())
-                .unwrap()
-                .as_slice()
-                .try_into()
-                .unwrap(),
-            source_address: payment.common.account.clone().try_into().unwrap(),
-            destination_address: hex::decode(destination_address)
-                .unwrap()
-                .try_into()
-                .unwrap(),
-            destination_chain: str::from_utf8(hex::decode(destination_chain).unwrap().as_slice())
-                .unwrap()
-                .try_into()
-                .unwrap(),
+            tx_id: tx_id_bytes.as_slice().try_into().unwrap(),
+            source_address: source_address_bytes.try_into().unwrap(),
+            destination_address: destination_addr_bytes.try_into().unwrap(),
+            destination_chain: destination_chain_str.try_into().unwrap(),
             payload_hash: None,
             amount: xrpl_amplifier_types::types::XRPLPaymentAmount::Drops(
                 payment.amount.size() as u64
@@ -120,17 +120,29 @@ async fn build_xrpl_user_message(
     };
 
     if payload_hash.is_some() {
-        message_with_payload.message.payload_hash = Some(
-            hex::decode(payload_hash.unwrap())
-                .unwrap()
-                .try_into()
-                .unwrap(),
-        )
+        let payload_hash_bytes = hex::decode(payload_hash.unwrap()).map_err(|e| {
+            IngestorError::GenericError(format!("Failed to decode payload hash: {}", e))
+        })?;
+        message_with_payload.message.payload_hash =
+            Some(payload_hash_bytes.try_into().map_err(|_| {
+                IngestorError::GenericError("Invalid length of payload_hash bytes".into())
+            })?)
     }
 
     if payload.is_some() {
-        message_with_payload.payload =
-            Some(payload.unwrap().as_bytes().to_vec().try_into().unwrap());
+        message_with_payload.payload = Some(
+            payload
+                .unwrap()
+                .as_bytes()
+                .to_vec()
+                .try_into()
+                .map_err(|e| {
+                    IngestorError::GenericError(format!(
+                        "Failed to convert payload to HexBinary: {}",
+                        e
+                    ))
+                })?,
+        );
     }
 
     Ok(message_with_payload)
@@ -141,13 +153,13 @@ async fn xrpl_tx_from_hash(
     client: &xrpl_http_client::Client,
 ) -> Result<Transaction, IngestorError> {
     let tx_request = TxRequest::new(&tx_hash.to_string()).binary(false);
-    Ok(client
+    client
         .call(tx_request)
         .await
         .map_err(|e| {
             IngestorError::GenericError(format!("Failed to get transaction: {}", e.to_string()))
-        })?
-        .tx)
+        })
+        .map(|res| res.tx)
 }
 
 pub struct XrplIngestor {
@@ -158,27 +170,18 @@ pub struct XrplIngestor {
 }
 
 fn parse_message_from_context(metadata: Option<Metadata>) -> Result<XRPLMessage, IngestorError> {
-    let source_context = metadata
-        .ok_or(IngestorError::GenericError(
-            "Verify task missing meta field".to_owned(),
-        ))?
-        .source_context
-        .ok_or(IngestorError::GenericError(
-            "Verify task missing source_context field".to_owned(),
-        ))?;
+    let metadata = metadata
+        .ok_or_else(|| IngestorError::GenericError("Verify task missing meta field".into()))?;
 
-    Ok(source_context
-        .get(&"user_message".to_owned())
-        .ok_or(IngestorError::GenericError(
-            "Verify task missing user_message in source_context".to_owned(),
-        ))
-        .map_err(|e| {
-            IngestorError::GenericError(format!(
-                "Failed to parse source context to XRPL User Message: {}",
-                e.to_string()
-            ))
-        })?
-        .to_owned())
+    let source_context = metadata.source_context.ok_or_else(|| {
+        IngestorError::GenericError("Verify task missing source_context field".into())
+    })?;
+
+    let user_msg = source_context.get("user_message").ok_or_else(|| {
+        IngestorError::GenericError("Verify task missing user_message in source_context".into())
+    })?;
+
+    Ok(user_msg.clone())
 }
 
 impl XrplIngestor {
@@ -232,20 +235,26 @@ impl XrplIngestor {
         let execute_msg =
             xrpl_gateway::msg::ExecuteMsg::VerifyMessages(vec![XRPLMessage::ProverMessage(
                 hex::decode(tx.common().hash.clone().unwrap())
-                    .unwrap()
+                    .map_err(|e| {
+                        IngestorError::GenericError(format!("Failed to decode tx hash: {}", e))
+                    })?
                     .as_slice()
                     .try_into()
-                    .unwrap(),
+                    .map_err(|_| {
+                        IngestorError::GenericError("Invalid length of tx hash bytes".into())
+                    })?,
             )]);
-        let request = BroadcastRequest::Generic(serde_json::to_value(&execute_msg).unwrap());
+
+        let request =
+            BroadcastRequest::Generic(serde_json::to_value(&execute_msg).map_err(|e| {
+                IngestorError::GenericError(format!("Failed to serialize VerifyMessages: {}", e))
+            })?);
+
         self.gmp_api
             .post_broadcast(self.config.xrpl_gateway_address.clone(), &request)
             .await
             .map_err(|e| {
-                IngestorError::GenericError(format!(
-                    "Failed to broadcast message: {}",
-                    e.to_string()
-                ))
+                IngestorError::GenericError(format!("Failed to broadcast message: {}", e))
             })?;
 
         Ok(vec![])
@@ -267,22 +276,25 @@ impl XrplIngestor {
         let query = xrpl_gateway::msg::QueryMsg::InterchainTransfer {
             message_with_payload: xrpl_user_message_with_payload.clone(),
         };
-        let request = QueryRequest::Generic(serde_json::to_value(&query).unwrap());
-        let interchain_transfer_response: InterchainTransfer = serde_json::from_str(
-            &self
-                .gmp_api
-                .post_query(self.config.xrpl_gateway_address.clone(), &request)
-                .await
-                .map_err(|e| {
-                    IngestorError::GenericError(format!(
-                        "Failed to translate XRPL User Message to ITS Message: {}",
-                        e.to_string()
-                    ))
-                })?,
-        )
-        .map_err(|e| {
-            IngestorError::GenericError(format!("Failed to parse ITS Message: {}", e.to_string()))
-        })?;
+        let request = QueryRequest::Generic(serde_json::to_value(&query).map_err(|e| {
+            IngestorError::GenericError(format!("Failed to serialize InterchainTransfer: {}", e))
+        })?);
+
+        let response_body = self
+            .gmp_api
+            .post_query(self.config.xrpl_gateway_address.clone(), &request)
+            .await
+            .map_err(|e| {
+                IngestorError::GenericError(format!(
+                    "Failed to translate XRPL User Message to ITS Message: {}",
+                    e
+                ))
+            })?;
+
+        let interchain_transfer_response: InterchainTransfer = serde_json::from_str(&response_body)
+            .map_err(|e| {
+                IngestorError::GenericError(format!("Failed to parse ITS Message: {}", e))
+            })?;
 
         Ok(Event::Call {
             common: CommonEventFields {
@@ -297,7 +309,7 @@ impl XrplIngestor {
             payload: xrpl_user_message_with_payload
                 .payload
                 .map(|p| p.to_hex())
-                .unwrap_or_else(|| "".to_string()),
+                .unwrap_or_default(),
             meta: Some(Metadata {
                 tx_id: None,
                 from_address: None,
@@ -357,15 +369,16 @@ impl XrplIngestor {
             xrpl_gateway::msg::ExecuteMsg::VerifyMessages(vec![XRPLMessage::UserMessage(
                 user_message.clone(),
             )]);
-        let request = BroadcastRequest::Generic(serde_json::to_value(&execute_msg).unwrap());
+        let request =
+            BroadcastRequest::Generic(serde_json::to_value(&execute_msg).map_err(|e| {
+                IngestorError::GenericError(format!("Failed to serialize VerifyMessages: {}", e))
+            })?);
+
         self.gmp_api
             .post_broadcast(self.config.xrpl_gateway_address.clone(), &request)
             .await
             .map_err(|e| {
-                IngestorError::GenericError(format!(
-                    "Failed to broadcast message: {}",
-                    e.to_string()
-                ))
+                IngestorError::GenericError(format!("Failed to broadcast message: {}", e))
             })?;
         Ok(())
     }
@@ -375,12 +388,12 @@ impl XrplIngestor {
         tx: &Transaction,
     ) -> Result<(String, BroadcastRequest), IngestorError> {
         let tx_common = match tx {
-            Transaction::Payment(payment_transaction) => Ok(&payment_transaction.common),
-            Transaction::TicketCreate(common) => Ok(common),
-            Transaction::SignerListSet(common) => Ok(common),
-            Transaction::TrustSet(trust_set_transaction) => Ok(&trust_set_transaction.common),
+            Transaction::Payment(p) => Ok(&p.common),
+            Transaction::TicketCreate(c) => Ok(c),
+            Transaction::SignerListSet(c) => Ok(c),
+            Transaction::TrustSet(t) => Ok(&t.common),
             _ => Err(IngestorError::UnsupportedTransaction(
-                "Unsupported transaction type".to_owned(),
+                "Unsupported transaction type".into(),
             )),
         }?;
 
@@ -389,7 +402,7 @@ impl XrplIngestor {
                 |e| {
                     IngestorError::GenericError(format!(
                         "Failed to extract multisig_session_id from memos: {}",
-                        e.to_string()
+                        e
                     ))
                 },
             )?;
@@ -404,9 +417,8 @@ impl XrplIngestor {
         let signers = tx_common
             .signers
             .clone()
-            .ok_or(IngestorError::GenericError(
-                "Payment transaction missing signers".to_owned(),
-            ))?;
+            .ok_or_else(|| IngestorError::GenericError("Transaction missing signers".into()))?;
+
         let signers_keys = signers
             .iter()
             .map(|signer| {
@@ -414,21 +426,30 @@ impl XrplIngestor {
                     "{{ \"ecdsa\": \"{}\"}}", // TODO: beautify
                     signer.signer.signing_pub_key
                 ))
-                .unwrap()
+                .map_err(|e| {
+                    IngestorError::GenericError(format!("Invalid signer public key: {}", e))
+                })
             })
-            .collect::<Vec<PublicKey>>();
+            .collect::<Result<Vec<PublicKey>, IngestorError>>()?;
+
+        let tx_hash = tx_common.hash.clone().ok_or_else(|| {
+            IngestorError::GenericError("Transaction missing field 'hash'".into())
+        })?;
+
+        let tx_hash_bytes = hex::decode(&tx_hash)
+            .map_err(|e| IngestorError::GenericError(format!("Failed to decode tx hash: {}", e)))?;
 
         let execute_msg = xrpl_multisig_prover::msg::ExecuteMsg::ConfirmTxStatus {
             signer_public_keys: signers_keys,
-            signed_tx_hash: TxHash::new(
-                hex::decode(tx_common.hash.clone().unwrap())
-                    .unwrap()
-                    .try_into()
-                    .unwrap(),
-            ),
+            signed_tx_hash: TxHash::new(tx_hash_bytes.try_into().map_err(|_| {
+                IngestorError::GenericError("Invalid length of tx hash bytes".into())
+            })?),
             multisig_session_id: multisig_session_id.try_into().unwrap(),
         };
-        let request = BroadcastRequest::Generic(serde_json::to_value(&execute_msg).unwrap());
+        let request =
+            BroadcastRequest::Generic(serde_json::to_value(&execute_msg).map_err(|e| {
+                IngestorError::GenericError(format!("Failed to serialize ConfirmTxStatus: {}", e))
+            })?);
         Ok((self.config.xrpl_multisig_prover_address.clone(), request))
     }
 
@@ -442,7 +463,13 @@ impl XrplIngestor {
                 payload: None, // TODO
             },
         ]);
-        let request = BroadcastRequest::Generic(serde_json::to_value(&execute_msg).unwrap());
+        let request =
+            BroadcastRequest::Generic(serde_json::to_value(&execute_msg).map_err(|e| {
+                IngestorError::GenericError(format!(
+                    "Failed to serialize RouteIncomingMessages: {}",
+                    e
+                ))
+            })?);
         Ok((self.config.xrpl_gateway_address.clone(), request))
     }
 
@@ -453,33 +480,32 @@ impl XrplIngestor {
             "wasm-quorum-reached" => {
                 let xrpl_message = task.task.message.clone();
                 let mut prover_tx = None;
+
                 let (contract_address, request) = match xrpl_message.clone() {
-                    XRPLMessage::UserMessage(user_message) => {
-                        debug!("Quorum reached for XRPLUserMessage: {:?}", user_message);
-                        self.user_message_routing_request(user_message)?
+                    XRPLMessage::UserMessage(msg) => {
+                        debug!("Quorum reached for XRPLUserMessage: {:?}", msg);
+                        self.user_message_routing_request(msg)?
                     }
                     XRPLMessage::ProverMessage(tx_hash) => {
                         debug!("Quorum reached for XRPLProverMessage: {:?}", tx_hash);
-                        prover_tx = Some(xrpl_tx_from_hash(tx_hash, &self.client).await?);
+                        let tx = xrpl_tx_from_hash(tx_hash, &self.client).await?;
+                        prover_tx = Some(tx);
                         self.prover_tx_routing_request(&prover_tx.as_ref().unwrap())
                             .await?
                     }
                 };
-                debug!("Broadcasting request: {:?}", request);
 
+                debug!("Broadcasting request: {:?}", request);
                 // TODO: think what happens on failure. This shouldn't happen.
                 self.gmp_api
                     .post_broadcast(contract_address, &request)
                     .await
                     .map_err(|e| {
-                        IngestorError::GenericError(format!(
-                            "Failed to broadcast message: {}",
-                            e.to_string()
-                        ))
+                        IngestorError::GenericError(format!("Failed to broadcast message: {}", e))
                     })?;
 
-                match xrpl_message {
-                    XRPLMessage::ProverMessage(_) => match prover_tx.unwrap() {
+                if let XRPLMessage::ProverMessage(_) = xrpl_message {
+                    match prover_tx.unwrap() {
                         Transaction::Payment(tx) => {
                             let common = tx.common;
                             let event = Event::MessageExecuted {
@@ -514,9 +540,8 @@ impl XrplIngestor {
                             }
                         }
                         _ => {}
-                    },
-                    _ => {}
-                };
+                    }
+                }
                 Ok(())
             }
             _ => Err(IngestorError::GenericError(format!(
@@ -530,13 +555,25 @@ impl XrplIngestor {
         &self,
         task: ConstructProofTask,
     ) -> Result<(), IngestorError> {
+        let cc_id = CrossChainId::new(task.task.message.source_chain, task.task.message.message_id)
+            .map_err(|e| {
+                IngestorError::GenericError(format!("Failed to construct CrossChainId: {}", e))
+            })?;
+
+        let payload_bytes = hex::decode(&task.task.payload).map_err(|e| {
+            IngestorError::GenericError(format!("Failed to decode task payload: {}", e))
+        })?;
+
         let execute_msg = xrpl_multisig_prover::msg::ExecuteMsg::ConstructProof {
-            cc_id: CrossChainId::new(task.task.message.source_chain, task.task.message.message_id)
-                .unwrap(),
-            payload: hex::decode(task.task.payload).unwrap().into(),
+            cc_id: cc_id,
+            payload: payload_bytes.into(),
         };
 
-        let request = BroadcastRequest::Generic(serde_json::to_value(&execute_msg).unwrap());
+        let request =
+            BroadcastRequest::Generic(serde_json::to_value(&execute_msg).map_err(|e| {
+                IngestorError::GenericError(format!("Failed to serialize ConstructProof: {}", e))
+            })?);
+
         self.gmp_api
             .post_broadcast(self.config.xrpl_multisig_prover_address.clone(), &request)
             .await
