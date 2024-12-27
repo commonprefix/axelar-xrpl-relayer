@@ -2,7 +2,7 @@ require('dotenv').config({ path: __dirname + '/../.env' });
 const axios = require('axios');
 const { spawn } = require('child_process');
 
-const AXELAR_SENDER = "governance";
+const AXELAR_SENDER = process.env.AXELAR_RELAYER_WALLET;
 
 function spawnAsync(command, args = [], options = {}) {
     return new Promise((resolve, reject) => {

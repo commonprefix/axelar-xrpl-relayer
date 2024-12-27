@@ -6,7 +6,7 @@ const { logError, delay, fetchEvents, processEvent, getCurrentAxelarHeight, isKn
 const app = express();
 const port = 3001;
 
-const AXELAR_SENDER = 'governance';
+const AXELAR_SENDER = process.env.GMP_API_WALLET;
 const START_HEIGHT = 0;
 let tasks = [];
 let task_autoincrement = 0;
