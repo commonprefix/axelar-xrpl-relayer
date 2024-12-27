@@ -1,6 +1,12 @@
 require('dotenv').config({ path: __dirname + '/../.env' });
+const Sentry = require('@sentry/node');
 const { spawn } = require('child_process');
 const axios = require('axios');
+
+const logError = (error) => {
+    console.error(error);
+    Sentry.captureException(error);
+}
 
 /**
  * Spawns a child process and collects stdout/stderr.
@@ -55,7 +61,7 @@ async function getCurrentAxelarHeight() {
         const result = JSON.parse(stderr);
         return parseInt(result.SyncInfo.latest_block_height, 10);
     } catch (error) {
-        console.error('Failed to parse current axelar height:', error);
+        logError('Failed to parse current axelar height:', error);
         throw error;
     }
 }
@@ -94,7 +100,7 @@ async function fetchEvents(eventType, contract, fromHeight) {
         }
         return events;
     } catch (error) {
-        console.error(`Error executing fetchEvents command: ${error.message}`);
+        logError(`Error executing fetchEvents command: ${error.message}`);
         return [];
     }
 }
@@ -162,8 +168,7 @@ async function handleRoutingOutgoing(event, height) {
         const response = await axios.get(url);
         payload = response.data;
     } catch (error) {
-        console.error(`Could not find payload for ${sourceChain}_${messageId}`);
-        console.error(error.message);
+        logError(`Could not find payload for ${sourceChain}_${messageId} \n ${error.message}`);
         return null;
     }
 
@@ -224,7 +229,7 @@ async function handleSigningCompleted(event, height) {
             }
         };
     } catch (error) {
-        console.error('Error retrieving tx_blob:', error.message);
+        logError('Error retrieving tx_blob:', error.message);
         return null;
     }
 }
@@ -251,6 +256,7 @@ async function processEvent(event, height) {
 }
 
 module.exports = {
+    logError,
     spawnAsync,
     delay,
     getCurrentAxelarHeight,

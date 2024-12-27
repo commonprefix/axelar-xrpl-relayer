@@ -1,14 +1,13 @@
-require('dotenv').config({ path: __dirname + '/../.env' });
+require("./instrument.js");
 const express = require('express');
 const bodyParser = require('body-parser');
-const { delay, fetchEvents, processEvent, getCurrentAxelarHeight, isKnownBroadcastType, spawnAsync } = require('./utils');
+const { logError, delay, fetchEvents, processEvent, getCurrentAxelarHeight, isKnownBroadcastType, spawnAsync } = require('./utils');
 
-// Constants
 const app = express();
 const port = 3001;
 
 const AXELAR_SENDER = 'governance';
-const START_HEIGHT = 1055976;
+const START_HEIGHT = 0;
 let tasks = [];
 let task_autoincrement = 0;
 
@@ -47,7 +46,7 @@ let task_autoincrement = 0;
 
             await delay(2000);
         } catch (error) {
-            console.error('Error in mainLoop:', error.message);
+            logError('Error in mainLoop:', error.message);
             await delay(2000);
         }
     }
@@ -73,7 +72,7 @@ app.post('/chains/xrpl/events', (req, res) => {
     try {
         bodyJson = JSON.parse(req.body);
     } catch (err) {
-        console.error('Invalid JSON in request body:', err.message);
+        logError('Invalid JSON in request body:', err.message);
         return res.status(400).json({ error: 'Invalid JSON' });
     }
     console.log(JSON.stringify(bodyJson, null, 2));
@@ -132,7 +131,7 @@ app.post('/contracts/:contract/broadcasts', async (req, res) => {
             return res.status(404).json({ error: 'Unknown broadcast type' });
         }
     } catch (error) {
-        console.error('Broadcast error:', error);
+        logError('Broadcast error:', error);
         return res.status(500).json({ error: error.message });
     }
 });
@@ -146,7 +145,7 @@ app.post('/contracts/:contract/queries', async (req, res) => {
         bodyJson = JSON.parse(req.body);
         console.log(JSON.stringify(bodyJson, null, 2));
     } catch (err) {
-        console.error('Invalid JSON in query:', err.message);
+        logError('Invalid JSON in query:', err.message);
         return res.status(400).json({ error: 'Invalid JSON' });
     }
 
@@ -160,7 +159,7 @@ app.post('/contracts/:contract/queries', async (req, res) => {
 
     let { stdout, stderr } = await spawnAsync('axelard', args);
     if (stderr) {
-        console.error(`Error executing query: ${stderr}`);
+        logError(`Error executing query: ${stderr}`);
         return res.status(500).json({ error: stderr });
     }
 
@@ -168,7 +167,7 @@ app.post('/contracts/:contract/queries', async (req, res) => {
         const parsed = JSON.parse(stdout);
         res.json(parsed.data);
     } catch (parseErr) {
-        console.error('Could not parse axelard query stdout:', parseErr.message);
+        logError('Could not parse axelard query stdout:', parseErr.message);
         res.status(500).send('Failed to parse query result');
     }
 });

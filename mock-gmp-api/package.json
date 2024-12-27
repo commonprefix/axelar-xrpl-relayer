@@ -9,6 +9,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@sentry/node": "^8.47.0",
     "axios": "^1.7.9",
     "body-parser": "^1.20.3",
     "dotenv": "^16.4.7",
