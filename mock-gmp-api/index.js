@@ -212,9 +212,10 @@ let task_autoincrement = 0;
 // Posting an event here starts the chain reaction: next GET /tasks returns VERIFY once.
 app.post('/chains/xrpl/events', (req, res) => {
     console.log("Received event: ");
-    console.log(JSON.stringify(req.body, null, 2));
+    const body_json = JSON.parse(req.body);
+    console.log(JSON.stringify(body_json, null, 2));
 
-    for (let event of req.body.events) {
+    for (let event of body_json.events) {
         if (event.type === "CALL") {
             tasks.push({
                 id: task_autoincrement++,
@@ -235,7 +236,7 @@ app.post('/chains/xrpl/events', (req, res) => {
             });
         }
     }
-    let response = { results: req.body.events.map((_, index) => ({ status: "ACCEPTED", index })) }
+    let response = { results: body_json.events.map((_, index) => ({ status: "ACCEPTED", index })) }
     res.json(response);
 });
 
@@ -311,9 +312,9 @@ app.post('/contracts/:contract/queries', (req, res) => {
     const contract = req.params.contract;
 
     console.log(`Received query for contract ${contract}:`);
-    console.log(JSON.stringify(req.body, null, 2));
+    console.log(JSON.stringify(JSON.parse(req.body), null, 2));
 
-    const query = JSON.stringify(req.body);
+    const query = req.body;
     const command = `axelard q wasm contract-state smart ${contract} '${query}' --node ${process.env.AXELAR_RPC_URL} --output json`;
     console.log("Executing axelard command: " + command);
     exec(command, (error, stdout, stderr) => {
