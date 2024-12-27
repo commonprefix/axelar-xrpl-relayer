@@ -3,17 +3,17 @@ module.exports = {
     {
       name: "axelar-relayer",
       script: "mock-axelar-relayer/index.js",
-      watch: true,
+      watch: false,
     },
     {
       name: "payload-cache",
       script: "mock-payload-cache/index.js",
-      watch: true,
-    }
+      watch: false,
+    },
     {
       name: "gmp-api",
       script: "mock-gmp-api/index.js",
-      watch: true,
+      watch: false,
     }
   ]
 };
