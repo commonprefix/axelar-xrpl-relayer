@@ -20,34 +20,51 @@ pub struct XRPLClient {}
 
 impl XRPLClient {
     pub fn new_http_client(url: &str) -> Result<xrpl_http_client::Client, ClientError> {
-        let client = xrpl_http_client::Client::builder()
+        let http_client = reqwest::ClientBuilder::new()
+            .connect_timeout(DEFAULT_RPC_TIMEOUT)
+            .timeout(DEFAULT_RPC_TIMEOUT)
+            .build()
+            .map_err(|e| ClientError::ConnectionFailed(e.to_string()))?;
+
+        Ok(xrpl_http_client::Client::builder()
             .base_url(url)
-            .http_client(
-                reqwest::ClientBuilder::new()
-                    .connect_timeout(DEFAULT_RPC_TIMEOUT.into())
-                    .timeout(DEFAULT_RPC_TIMEOUT)
-                    .build()
-                    .map_err(|e| ClientError::ConnectionFailed(e.to_string()))?,
-            )
-            .build();
-        Ok(client)
+            .http_client(http_client)
+            .build())
     }
 }
 
 pub struct XRPLRefundManager {
     client: Arc<xrpl_http_client::Client>,
     account_id: AccountId,
-    secret: String,
+    secret_key: SecretKey,
+    public_key: PublicKey,
 }
 
 impl<'a> XRPLRefundManager {
-    fn new(client: Arc<xrpl_http_client::Client>, address: String, secret: String) -> Self {
+    fn new(
+        client: Arc<xrpl_http_client::Client>,
+        address: String,
+        secret: String,
+    ) -> Result<Self, RefundManagerError> {
+        let account_id = AccountId::from_address(&address)
+            .map_err(|e| RefundManagerError::GenericError(format!("Invalid address: {}", e)))?;
+
+        let secret_bytes = hex::decode(&secret)
+            .map_err(|e| RefundManagerError::GenericError(format!("Hex decode error: {}", e)))?;
+
+        let secret_key = SecretKey::parse_slice(&secret_bytes).map_err(|err| {
+            RefundManagerError::GenericError(format!("Invalid secret key: {:?}", err))
+        })?;
+
+        let public_key = PublicKey::from_secret_key(&secret_key);
+
         debug!("Creating refund manager with address: {}", address);
-        Self {
+        Ok(Self {
             client,
-            account_id: AccountId::from_address(&address).unwrap(),
-            secret,
-        }
+            account_id,
+            secret_key,
+            public_key,
+        })
     }
 }
 
@@ -57,24 +74,32 @@ impl RefundManager for XRPLRefundManager {
         recipient: String,
         drops: String,
     ) -> Result<String, RefundManagerError> {
-        let mut tx = PaymentTransaction::new(
-            self.account_id,
-            Amount::drops(drops.parse::<u64>().unwrap()).unwrap(), // TODO: could this overflow?
-            AccountId::from_address(&recipient).unwrap(),
-        );
+        let drops_u64 = drops.parse::<u64>().map_err(|e| {
+            RefundManagerError::GenericError(format!("Invalid drops amount '{}': {}", drops, e))
+        })?;
+
+        let amount = Amount::drops(drops_u64).map_err(|e| {
+            RefundManagerError::GenericError(format!("Failed to parse amount: {}", e.to_string()))
+        })?;
+
+        let recipient_account = AccountId::from_address(&recipient).map_err(|e| {
+            RefundManagerError::GenericError(format!("Invalid recipient address: {}", e))
+        })?;
+
+        let mut tx = PaymentTransaction::new(self.account_id, amount, recipient_account);
 
         self.client
             .prepare_transaction(&mut tx.common)
             .await
             .map_err(|e| RefundManagerError::GenericError(e.to_string()))?;
 
-        println!("{}", hex::decode(self.secret.clone()).unwrap().len());
-        let secret_key =
-            SecretKey::parse_slice(&hex::decode(self.secret.clone()).unwrap()).unwrap();
-        let public_key = PublicKey::from_secret_key(&secret_key);
-        sign_transaction(&mut tx, &public_key, &secret_key).unwrap();
+        sign_transaction(&mut tx, &self.public_key, &self.secret_key)
+            .map_err(|e| RefundManagerError::GenericError(format!("Sign error: {}", e)))?;
 
-        Ok(hex::encode_upper(serialize::serialize(&tx).unwrap()))
+        let tx_bytes = serialize::serialize(&tx)
+            .map_err(|e| RefundManagerError::GenericError(format!("Serialization error: {}", e)))?;
+
+        Ok(hex::encode_upper(tx_bytes))
     }
 }
 
@@ -91,13 +116,15 @@ impl XRPLBroadcaster {
 impl Broadcaster for XRPLBroadcaster {
     async fn broadcast(&self, tx_blob: String) -> Result<String, BroadcasterError> {
         let req = SubmitRequest::new(tx_blob);
-        let resp = self
+        let response = self
             .client
             .call(req)
             .await
             .map_err(|e| BroadcasterError::RPCCallFailed(e.to_string()))?;
 
-        Ok(serde_json::to_string(&resp).unwrap())
+        serde_json::to_string(&response).map_err(|e| {
+            BroadcasterError::RPCCallFailed(format!("JSON serialization error: {}", e))
+        })
     }
 }
 
@@ -107,15 +134,22 @@ impl XrplIncluder {
     pub async fn new<'a>(
         config: Config,
         gmp_api: Arc<GmpApi>,
-    ) -> Includer<XRPLBroadcaster, Arc<xrpl_http_client::Client>, XRPLRefundManager> {
+    ) -> error_stack::Result<
+        Includer<XRPLBroadcaster, Arc<xrpl_http_client::Client>, XRPLRefundManager>,
+        BroadcasterError,
+    > {
+        // ) -> Includer<XRPLBroadcaster, Arc<xrpl_http_client::Client>, XRPLRefundManager> {
         let client = Arc::new(XRPLClient::new_http_client(RPC_URL).unwrap());
 
-        let broadcaster = XRPLBroadcaster::new(Arc::clone(&client)).unwrap();
+        let broadcaster = XRPLBroadcaster::new(Arc::clone(&client))
+            .map_err(|e| e.attach_printable("Failed to create XRPLBroadcaster"))?;
+
         let refund_manager = XRPLRefundManager::new(
             Arc::clone(&client),
             config.refund_manager_address,
             config.includer_secret,
-        );
+        )
+        .map_err(|e| error_stack::report!(BroadcasterError::GenericError(e.to_string())))?;
 
         let includer = Includer {
             chain_client: client,
@@ -124,6 +158,6 @@ impl XrplIncluder {
             gmp_api,
         };
 
-        includer
+        Ok(includer)
     }
 }

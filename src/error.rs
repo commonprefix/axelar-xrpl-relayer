@@ -32,6 +32,8 @@ pub enum BroadcasterError {
     RPCCallFailed(String),
     #[error("RPC call failed: {0}")]
     RPCError(String),
+    #[error("Generic error: {0}")]
+    GenericError(String),
 }
 
 #[derive(Error, Debug)]
