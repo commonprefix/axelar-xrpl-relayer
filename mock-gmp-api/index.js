@@ -1,207 +1,65 @@
 require('dotenv').config({ path: __dirname + '/../.env' });
 const express = require('express');
 const bodyParser = require('body-parser');
+const { delay, fetchEvents, processEvent, getCurrentAxelarHeight, isKnownBroadcastType } = require('./utils');
+const util = require('util');
+
+// Promisified exec from child_process
+const exec = util.promisify(require('child_process').exec);
+
+// Constants
 const app = express();
 const port = 3001;
-const util = require('util');
-const axios = require('axios');
-const exec = util.promisify(require('child_process').exec);
-const { spawn } = require('child_process');
 
-app.use(bodyParser.text());
-const AXELAR_SENDER = "governance";
-const START_HEIGHT = 0;
+const AXELAR_SENDER = 'governance';
+const START_HEIGHT = 1055976;
+let tasks = [];
+let task_autoincrement = 0;
 
-function spawnAsync(command, args = [], options = {}) {
-    return new Promise((resolve, reject) => {
-        const child = spawn(command, args, options);
+/**
+ * Main event loop: polls events from three contracts, creates new tasks when relevant events occur.
+ */
+(async function mainLoop() {
+    let latestHeight = START_HEIGHT || await getCurrentAxelarHeight();
 
-        let stdout = '';
-        let stderr = '';
-
-        // Collect data from stdout
-        child.stdout.on('data', (data) => {
-            stdout += data;
-        });
-
-        // Collect data from stderr
-        child.stderr.on('data', (data) => {
-            stderr += data;
-        });
-
-        // Handle error events
-        child.on('error', (err) => {
-            reject(err);
-        });
-
-        // Close event is emitted when the process has finished
-        child.on('close', (code) => {
-            // Resolve if exit code is 0, otherwise reject
-            if (code === 0) {
-                resolve({ stdout, stderr });
-            } else {
-                const err = new Error(`Child process exited with code ${code}`);
-                err.code = code;
-                err.stdout = stdout;
-                err.stderr = stderr;
-                reject(err);
-            }
-        });
-    });
-}
-
-function delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function get_current_axelar_height() {
-    const command = 'axelard';
-    const args = [
-        'status',
-        '--node', process.env.AXELAR_RPC_URL,
-    ];
-
-    let result = JSON.parse((await spawnAsync(command, args)).stderr); // stderr contains the JSON output
-    return parseInt(result.SyncInfo.latest_block_height);
-}
-
-// Initially returns no tasks. After event posted, returns VERIFY once.
-// After verify_messages broadcast, returns CONSTRUCT_PROOF once.
-async function fetch_events(event_type, contract, from_height) {
-    const command = `axelard q txs \
-    --events 'tx.height>${from_height} AND wasm-${event_type}._contract_address=${contract}' \
-    --node ${process.env.AXELAR_RPC_URL} \
-    --limit 100 \
-    --output json`;
-
-    try {
-        let result = JSON.parse((await exec(command)).stdout);
-        if (result.total_count > 100) {
-            console.warn(`More than 100 events found for ${event_type}!`);
-        }
-        const events = [];
-        if (result && result.txs && Array.isArray(result.txs)) {
-            for (let tx of result.txs) {
-                for (let log of tx.logs) {
-                    let event = log.events.find(event => event.type === `wasm-${event_type}`);
-                    if (event) {
-                        events.push({ event, height: tx.height });
-                    }
-                }
-            }
-        }
-        return events;
-    } catch (error) {
-        console.error(`Error executing command: ${error.message}`);
-        return [];
-    }
-}
-let cc_id_to_message = {};
-(async () => {
-    let latest_height = START_HEIGHT || await get_current_axelar_height();
     while (true) {
-        let events = (await Promise.all([
-            fetch_events('quorum_reached', process.env.XRPL_VOTING_VERIFIER_ADDRESS, latest_height),
-            fetch_events('routing_outgoing', process.env.XRPL_GATEWAY_ADDRESS, latest_height),
-            fetch_events('signing_completed', process.env.MULTISIG_CONTRACT_ADDRESS, latest_height)
-        ])).flat();
-        for (let { event, height } of events) {
-            height = Number(height);
+        try {
+            const allEvents = await Promise.all([
+                fetchEvents('quorum_reached', process.env.XRPL_VOTING_VERIFIER_ADDRESS, latestHeight),
+                fetchEvents('routing_outgoing', process.env.XRPL_GATEWAY_ADDRESS, latestHeight),
+                fetchEvents('signing_completed', process.env.MULTISIG_CONTRACT_ADDRESS, latestHeight)
+            ]);
 
-            let task;
-            if (event.type === "wasm-quorum_reached") {
-                let status = event.attributes.find(attr => attr.key === "status").value
-                if (!status.includes('succeeded_on_source_chain')) {
-                    console.warn("Quorum not reached");
-                    console.warn(event);
-                } else {
-                    task = {
-                        id: height,
-                        chain: "xrpl",
-                        timestamp: new Date().toISOString(),
-                        type: "REACT_TO_WASM_EVENT",
-                        meta: event.meta, // TODO: how to get this
-                        task: {
-                            message: JSON.parse(event.attributes.find(attr => attr.key === "content").value),
-                            event_name: "wasm-quorum-reached"
-                        }
-                    };
-                }
-            } else if (event.type === "wasm-routing_outgoing") {
-                let message_id = event.attributes.find(attr => attr.key === "message_id").value;
-                let source_chain = event.attributes.find(attr => attr.key === "source_chain").value;
-                let destination_chain = event.attributes.find(attr => attr.key === "destination_chain").value;
-                let payload_hash = event.attributes.find(attr => attr.key === "payload_hash").value;
-                let cc_id = `${source_chain}_${message_id}`;
-                if (destination_chain !== 'xrpl') {
-                    continue;
-                }
+            // Flatten the array of arrays
+            const events = allEvents.flat();
 
-                let payload;
-                try {
-                    payload = (await axios.get(`http://localhost:5001?hash=${payload_hash}`)).data;
-                } catch (error) {
-                    console.error(`Could not find payload for ${cc_id}`);
-                    console.error(error.message);
-                    continue;
-                }
+            // Process each event
+            for (let { event, height } of events) {
+                height = Number(height);
+                let task = await processEvent(event, height);
 
-                task = {
-                    id: height,
-                    chain: "xrpl",
-                    timestamp: new Date().toISOString(),
-                    type: "CONSTRUCT_PROOF",
-                    meta: null,
-                    task: {
-                        message: {
-                            messageID: message_id,
-                            sourceChain: source_chain,
-                            sourceAddress: event.attributes.find(attr => attr.key === "source_address").value,
-                            destinationAddress: event.attributes.find(attr => attr.key === "destination_address").value,
-                            payloadHash: payload_hash
-                        },
-                        payload
-                    }
-                };
-            } else if (event.type === "wasm-signing_completed") {
-                let chain = event.attributes.find(attr => attr.key === "chain").value;
-                let session_id = event.attributes.find(attr => attr.key === "session_id").value;
-                if (chain !== 'xrpl') {
-                    continue;
+                if (task) {
+                    console.log(`Creating task: ${JSON.stringify(task, null, 2)}`);
+                    tasks.push(task);
                 }
-                let query = {
-                    proof: {
-                        multisig_session_id: session_id
-                    }
-                };
-                const command = `axelard q wasm contract-state smart ${process.env.XRPL_MULTISIG_PROVER_ADDRESS} '${JSON.stringify(query)}' --node ${process.env.AXELAR_RPC_URL} --output json`;
-                let execute_res = JSON.parse((await exec(command)).stdout);
-                task = {
-                    id: height,
-                    chain: "xrpl",
-                    timestamp: new Date().toISOString(),
-                    type: "GATEWAY_TX",
-                    meta: null,
-                    task: {
-                        executeData: execute_res.data.tx_blob
-                    }
-                };
             }
 
-            if (task) {
-                console.log(`Creating task: ${JSON.stringify(task, null, 2)}`);
-                tasks.push(task);
+            if (events.length > 0) {
+                const maxEventHeight = Math.max(...events.map(e => Number(e.height)));
+                latestHeight = Math.max(latestHeight, maxEventHeight);
             }
+
+            await delay(2000);
+        } catch (error) {
+            console.error('Error in mainLoop:', error.message);
+            await delay(2000);
         }
-        latest_height = Math.max(latest_height, ...events.map(event => event.height));
-
-        await delay(2000)
     }
 })();
 
-let tasks = [];
+app.use(bodyParser.text());
+
 app.get('/chains/xrpl/tasks', (req, res) => {
-    // TODO: listen for message routed event on gateway. When it comes, emit a construct proof task
     const afterParam = req.query.after;
 
     const after = afterParam ? Number(afterParam) : null;
@@ -213,15 +71,18 @@ app.get('/chains/xrpl/tasks', (req, res) => {
     res.json({ tasks: filteredTasks });
 });
 
-let task_autoincrement = 0;
-
-// Posting an event here starts the chain reaction: next GET /tasks returns VERIFY once.
 app.post('/chains/xrpl/events', (req, res) => {
     console.log("Received event: ");
-    const body_json = JSON.parse(req.body);
-    console.log(JSON.stringify(body_json, null, 2));
+    let bodyJson
+    try {
+        bodyJson = JSON.parse(req.body);
+    } catch (err) {
+        console.error('Invalid JSON in request body:', err.message);
+        return res.status(400).json({ error: 'Invalid JSON' });
+    }
+    console.log(JSON.stringify(bodyJson, null, 2));
 
-    for (let event of body_json.events) {
+    for (let event of bodyJson.events) {
         if (event.type === "CALL") {
             tasks.push({
                 id: task_autoincrement++,
@@ -242,98 +103,86 @@ app.post('/chains/xrpl/events', (req, res) => {
             });
         }
     }
-    let response = { results: body_json.events.map((_, index) => ({ status: "ACCEPTED", index })) }
+    let response = { results: bodyJson.events.map((_, index) => ({ status: "ACCEPTED", index })) }
     res.json(response);
 });
 
-// After we post a broadcast of type verify_messages, we trigger the return of CONSTRUCT_PROOF.
 app.post('/contracts/:contract/broadcasts', async (req, res) => {
+    const contract = req.params.contract;
+    console.log(`Received broadcast for contract ${contract}:`);
+
+    let parsedBody;
     try {
-        const contract = req.params.contract;
+        parsedBody = JSON.parse(req.body);
+    } catch (err) {
+        // If body is not valid JSON, store it as string
+        parsedBody = req.body;
+    }
+    console.log(JSON.stringify(parsedBody, null, 2));
 
-        console.log(`Received broadcast for contract ${contract}:`);
-        let body;
-        try {
-            body = JSON.parse(req.body);
-        } catch (_) {
-            body = req.body;
+    const command = `axelard tx wasm execute ${contract} '${JSON.stringify(parsedBody)}' \
+    --from ${AXELAR_SENDER} \
+    --chain-id ${process.env.AXELAR_CHAIN_ID} \
+    --gas auto \
+    --gas-adjustment 1.4 \
+    --gas-prices ${process.env.AXELAR_GAS_PRICES} \
+    --output json \
+    --keyring-backend test \
+    --node ${process.env.AXELAR_RPC_URL} \
+    -y`;
+
+    console.log('Executing axelard command:', command);
+
+    try {
+        if (isKnownBroadcastType(parsedBody)) {
+            const { stdout } = await exec(command);
+            return res.json(stdout);
+        } else {
+            return res.status(404).json({ error: 'Unknown broadcast type' });
         }
-        console.log(JSON.stringify(body, null, 2));
-
-        const command = `axelard tx wasm execute ${contract} '${JSON.stringify(body)}' \
-        --from ${AXELAR_SENDER} \
-        --chain-id ${process.env.AXELAR_CHAIN_ID} \
-        --gas auto \
-        --gas-adjustment 1.4 \
-        --gas-prices ${process.env.AXELAR_GAS_PRICES} \
-        --output json \
-        --keyring-backend test \
-        --node ${process.env.AXELAR_RPC_URL} \
-        -y`;
-
-        console.log("Executing axelard command: " + command);
-        if (body.verify_messages) {
-            let command_res = (await exec(command)).stdout;
-
-            // TODO: check if it was successfull
-            // console.log(`\tVerifyMessages Response: ${command_res}`);
-            return res.json(command_res);
-        } else if (body.route_incoming_messages) {
-            let command_res = (await exec(command)).stdout;
-
-            // console.log(`\tRouteIncomingMessages Response: ${command_res}`);
-            return res.json(command_res);
-        } else if (body.construct_proof) {
-            let command_res = (await exec(command)).stdout;
-            // console.log(`\ConstructProof response: ${command_res}`);
-            return res.json(command_res);
-        } else if (body.confirm_tx_status) {
-            let command_res = (await exec(command)).stdout;
-            // console.log(`\SignMessages response: ${command_res}`);
-            return res.json(command_res);
-        } else if (body === "ticket_create") {
-            return res.json((await exec(command)).stdout);
-        }
-        return res.status(404).json({ error: 'Unknown broadcast type' });
     } catch (error) {
-        console.error(error);
+        console.error('Broadcast error:', error);
         return res.status(500).json({ error: error.message });
     }
-    // console.log(`Command: ${command}`);
-    // exec(command, (error, stdout, stderr) => {
-    //     console.log(`Command: ${command}`);
-    //     if (error) {
-    //         console.error(`\tError: ${error.message}`);
-    //         res.status(500).send('Error executing broadcast' + error.message);
-    //         return;
-    //     }
-
-    //     console.log(`\tResponse: ${stdout}`);
-    //     res.status(500).send('Dont do anything');
-    //     // res.json(JSON.parse(stdout));
-    // });
 });
 
 app.post('/contracts/:contract/queries', (req, res) => {
     const contract = req.params.contract;
-
     console.log(`Received query for contract ${contract}:`);
-    console.log(JSON.stringify(JSON.parse(req.body), null, 2));
 
-    const query = req.body;
-    const command = `axelard q wasm contract-state smart ${contract} '${query}' --node ${process.env.AXELAR_RPC_URL} --output json`;
+    let bodyJson;
+    try {
+        bodyJson = JSON.parse(req.body);
+        console.log(JSON.stringify(bodyJson, null, 2));
+    } catch (err) {
+        console.error('Invalid JSON in query:', err.message);
+        return res.status(400).json({ error: 'Invalid JSON' });
+    }
+
+
+    const command = `axelard q wasm contract-state smart ${contract} '${JSON.stringify(bodyJson)}' \
+        --node ${process.env.AXELAR_RPC_URL} \
+        --output json`;
+
     console.log("Executing axelard command: " + command);
+
     exec(command, (error, stdout, stderr) => {
         if (error) {
             console.error(`\tError: ${error.message}`);
-            res.status(500).send('Error executing query' + error.message);
-            return;
+            return res.status(500).send('Error executing query' + error.message);
         }
 
-        res.json(JSON.parse(stdout).data);
+        try {
+            const parsed = JSON.parse(stdout);
+            res.json(parsed.data);
+        } catch (parseErr) {
+            console.error('Could not parse axelard query stdout:', parseErr.message);
+            res.status(500).send('Failed to parse query result');
+        }
     });
 });
 
+// Start the server
 app.listen(port, () => {
     console.log(`Server is running on http://localhost:${port}`);
 });
