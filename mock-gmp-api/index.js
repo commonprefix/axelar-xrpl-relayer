@@ -1,11 +1,7 @@
 require('dotenv').config({ path: __dirname + '/../.env' });
 const express = require('express');
 const bodyParser = require('body-parser');
-const { delay, fetchEvents, processEvent, getCurrentAxelarHeight, isKnownBroadcastType } = require('./utils');
-const util = require('util');
-
-// Promisified exec from child_process
-const exec = util.promisify(require('child_process').exec);
+const { delay, fetchEvents, processEvent, getCurrentAxelarHeight, isKnownBroadcastType, spawnAsync } = require('./utils');
 
 // Constants
 const app = express();
@@ -120,22 +116,17 @@ app.post('/contracts/:contract/broadcasts', async (req, res) => {
     }
     console.log(JSON.stringify(parsedBody, null, 2));
 
-    const command = `axelard tx wasm execute ${contract} '${JSON.stringify(parsedBody)}' \
-    --from ${AXELAR_SENDER} \
-    --chain-id ${process.env.AXELAR_CHAIN_ID} \
-    --gas auto \
-    --gas-adjustment 1.4 \
-    --gas-prices ${process.env.AXELAR_GAS_PRICES} \
-    --output json \
-    --keyring-backend test \
-    --node ${process.env.AXELAR_RPC_URL} \
-    -y`;
+    const args = [
+        'tx', 'wasm', 'execute', contract, JSON.stringify(parsedBody),
+        '--from', AXELAR_SENDER, '--chain-id', process.env.AXELAR_CHAIN_ID,
+        '--gas', 'auto', '--gas-adjustment', '1.4', '--gas-prices', process.env.AXELAR_GAS_PRICES,
+        '--output', 'json', '--keyring-backend', 'test', '--node', process.env.AXELAR_RPC_URL, '-y'
+    ]
 
-    console.log('Executing axelard command:', command);
-
+    console.log('Executing axelard command: axelard', args.join(' '));
     try {
         if (isKnownBroadcastType(parsedBody)) {
-            const { stdout } = await exec(command);
+            const { stdout } = await spawnAsync('axelard', args);
             return res.json(stdout);
         } else {
             return res.status(404).json({ error: 'Unknown broadcast type' });
@@ -146,7 +137,7 @@ app.post('/contracts/:contract/broadcasts', async (req, res) => {
     }
 });
 
-app.post('/contracts/:contract/queries', (req, res) => {
+app.post('/contracts/:contract/queries', async (req, res) => {
     const contract = req.params.contract;
     console.log(`Received query for contract ${contract}:`);
 
@@ -159,27 +150,27 @@ app.post('/contracts/:contract/queries', (req, res) => {
         return res.status(400).json({ error: 'Invalid JSON' });
     }
 
+    const args = [
+        'q', 'wasm', 'contract-state', 'smart', contract, JSON.stringify(bodyJson),
+        '--node', process.env.AXELAR_RPC_URL,
+        '--output', 'json'
+    ]
 
-    const command = `axelard q wasm contract-state smart ${contract} '${JSON.stringify(bodyJson)}' \
-        --node ${process.env.AXELAR_RPC_URL} \
-        --output json`;
+    console.log("Executing axelard command: axelard" + args.join(' '));
 
-    console.log("Executing axelard command: " + command);
+    let { stdout, stderr } = await spawnAsync('axelard', args);
+    if (stderr) {
+        console.error(`Error executing query: ${stderr}`);
+        return res.status(500).json({ error: stderr });
+    }
 
-    exec(command, (error, stdout, stderr) => {
-        if (error) {
-            console.error(`\tError: ${error.message}`);
-            return res.status(500).send('Error executing query' + error.message);
-        }
-
-        try {
-            const parsed = JSON.parse(stdout);
-            res.json(parsed.data);
-        } catch (parseErr) {
-            console.error('Could not parse axelard query stdout:', parseErr.message);
-            res.status(500).send('Failed to parse query result');
-        }
-    });
+    try {
+        const parsed = JSON.parse(stdout);
+        res.json(parsed.data);
+    } catch (parseErr) {
+        console.error('Could not parse axelard query stdout:', parseErr.message);
+        res.status(500).send('Failed to parse query result');
+    }
 });
 
 // Start the server

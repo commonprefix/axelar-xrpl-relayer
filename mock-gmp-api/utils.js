@@ -1,10 +1,6 @@
 require('dotenv').config({ path: __dirname + '/../.env' });
 const { spawn } = require('child_process');
 const axios = require('axios');
-const util = require('util');
-
-// Promisified exec from child_process
-const exec = util.promisify(require('child_process').exec);
 
 /**
  * Spawns a child process and collects stdout/stderr.
@@ -69,14 +65,16 @@ async function getCurrentAxelarHeight() {
  * matching a specific wasm event type, from a given starting height.
  */
 async function fetchEvents(eventType, contract, fromHeight) {
-    const command = `axelard q txs \
-    --events 'tx.height>${fromHeight} AND wasm-${eventType}._contract_address=${contract}' \
-    --node ${process.env.AXELAR_RPC_URL} \
-    --limit 100 \
-    --output json`;
+    const args = [
+        'q', 'txs',
+        '--events', `tx.height>${fromHeight} AND wasm-${eventType}._contract_address=${contract}`,
+        '--node', process.env.AXELAR_RPC_URL,
+        '--limit', '100',
+        '--output', 'json'
+    ]
 
     try {
-        const { stdout } = await exec(command);
+        const { stdout } = await spawnAsync('axelard', args);
         const result = JSON.parse(stdout);
 
         if (result.total_count > 100) {
@@ -205,12 +203,15 @@ async function handleSigningCompleted(event, height) {
 
     // Query contract state to get the execute data (tx_blob)
     const query = { proof: { multisig_session_id: sessionId } };
-    const command = `axelard q wasm contract-state smart ${process.env.XRPL_MULTISIG_PROVER_ADDRESS} '${JSON.stringify(query)}' \
-      --node ${process.env.AXELAR_RPC_URL} \
-      --output json`;
+    const args = [
+        'q', 'wasm', 'contract-state', 'smart', process.env.XRPL_MULTISIG_PROVER_ADDRESS,
+        JSON.stringify(query),
+        '--node', process.env.AXELAR_RPC_URL,
+        '--output', 'json'
+    ];
 
     try {
-        const { stdout } = await exec(command);
+        const { stdout } = await spawnAsync('axelard', args);
         const executeRes = JSON.parse(stdout);
         return {
             id: height,
