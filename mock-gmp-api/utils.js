@@ -164,7 +164,7 @@ async function handleRoutingOutgoing(event, height) {
     // Attempt to retrieve payload from local cache.
     let payload;
     try {
-        const url = `http://localhost:5001?hash=${payloadHash}`;
+        const url = `${process.env.PAYLOAD_CACHE}?hash=${payloadHash}`;
         const response = await axios.get(url);
         payload = response.data;
     } catch (error) {

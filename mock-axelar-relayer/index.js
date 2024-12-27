@@ -120,7 +120,7 @@ async function get_current_axelar_height() {
                 }
             } else {
                 try {
-                    original_payload = (await axios.get(`http://localhost:5001?hash=${original_payload_hash}`)).data;
+                    original_payload = (await axios.get(`${process.env.PAYLOAD_CACHE}?hash=${original_payload_hash}`)).data;
                 } catch (error) {
                     console.error('Failed to process event:', JSON.stringify(event));
                     console.error('Error fetching payload from cache for hash');
@@ -158,7 +158,7 @@ async function get_current_axelar_height() {
                         if (event.attributes.find(attr => attr.key === "_contract_address").value === process.env.AXELARNET_GATEWAY) {
                             its_payload = event.attributes.find(attr => attr.key === "payload").value;
                             its_payload_hash = event.attributes.find(attr => attr.key === "payload_hash").value;
-                            const payload_hash = (await axios.post('http://localhost:5001/', its_payload)).data.hash;
+                            const payload_hash = (await axios.post(process.env.PAYLOAD_CACHE, its_payload)).data.hash;
                             if (payload_hash !== its_payload_hash) {
                                 console.error(`Payload hash mismatch!`);
                                 console.error(`Received hash: ${payload_hash}, expected hash: ${its_payload_hash}`);
