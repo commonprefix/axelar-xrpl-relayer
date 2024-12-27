@@ -120,8 +120,12 @@ async fn build_xrpl_user_message(
     };
 
     if payload_hash.is_some() {
-        message_with_payload.message.payload_hash =
-            Some(hex::decode(payload_hash.unwrap()).unwrap().try_into().unwrap())
+        message_with_payload.message.payload_hash = Some(
+            hex::decode(payload_hash.unwrap())
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        )
     }
 
     if payload.is_some() {
@@ -130,6 +134,20 @@ async fn build_xrpl_user_message(
     }
 
     Ok(message_with_payload)
+}
+
+async fn xrpl_tx_from_hash(
+    tx_hash: TxHash,
+    client: &xrpl_http_client::Client,
+) -> Result<Transaction, IngestorError> {
+    let tx_request = TxRequest::new(&tx_hash.to_string()).binary(false);
+    Ok(client
+        .call(tx_request)
+        .await
+        .map_err(|e| {
+            IngestorError::GenericError(format!("Failed to get transaction: {}", e.to_string()))
+        })?
+        .tx)
 }
 
 pub struct XrplIngestor {
@@ -354,29 +372,27 @@ impl XrplIngestor {
 
     pub async fn prover_tx_routing_request(
         &self,
-        tx_hash: TxHash,
+        tx: &Transaction,
     ) -> Result<(String, BroadcastRequest), IngestorError> {
-        let tx_request = TxRequest::new(&tx_hash.to_string()).binary(false);
-        let res = self.client.call(tx_request).await.map_err(|e| {
-            IngestorError::GenericError(format!("Failed to get transaction: {}", e.to_string()))
-        })?;
-        let common = match res.tx {
-            Transaction::Payment(payment_transaction) => Ok(payment_transaction.common),
+        let tx_common = match tx {
+            Transaction::Payment(payment_transaction) => Ok(&payment_transaction.common),
             Transaction::TicketCreate(common) => Ok(common),
             Transaction::SignerListSet(common) => Ok(common),
-            Transaction::TrustSet(trust_set_transaction) => Ok(trust_set_transaction.common),
+            Transaction::TrustSet(trust_set_transaction) => Ok(&trust_set_transaction.common),
             _ => Err(IngestorError::UnsupportedTransaction(
                 "Unsupported transaction type".to_owned(),
             )),
         }?;
 
-        let multisig_session_id_hex = extract_from_xrpl_memo(common.memos, "multisig_session_id")
-            .map_err(|e| {
-            IngestorError::GenericError(format!(
-                "Failed to extract multisig_session_id from memos: {}",
-                e.to_string()
-            ))
-        })?;
+        let multisig_session_id_hex =
+            extract_from_xrpl_memo(tx_common.memos.clone(), "multisig_session_id").map_err(
+                |e| {
+                    IngestorError::GenericError(format!(
+                        "Failed to extract multisig_session_id from memos: {}",
+                        e.to_string()
+                    ))
+                },
+            )?;
         let multisig_session_id =
             u64::from_str_radix(&multisig_session_id_hex, 16).map_err(|e| {
                 IngestorError::GenericError(format!(
@@ -385,9 +401,12 @@ impl XrplIngestor {
                 ))
             })?;
 
-        let signers = common.signers.clone().ok_or(IngestorError::GenericError(
-            "Payment transaction missing signers".to_owned(),
-        ))?;
+        let signers = tx_common
+            .signers
+            .clone()
+            .ok_or(IngestorError::GenericError(
+                "Payment transaction missing signers".to_owned(),
+            ))?;
         let signers_keys = signers
             .iter()
             .map(|signer| {
@@ -402,7 +421,7 @@ impl XrplIngestor {
         let execute_msg = xrpl_multisig_prover::msg::ExecuteMsg::ConfirmTxStatus {
             signer_public_keys: signers_keys,
             signed_tx_hash: TxHash::new(
-                hex::decode(common.hash.unwrap())
+                hex::decode(tx_common.hash.clone().unwrap())
                     .unwrap()
                     .try_into()
                     .unwrap(),
@@ -433,6 +452,7 @@ impl XrplIngestor {
         match task.task.event_name.as_str() {
             "wasm-quorum-reached" => {
                 let xrpl_message = task.task.message.clone();
+                let mut prover_tx = None;
                 let (contract_address, request) = match xrpl_message.clone() {
                     XRPLMessage::UserMessage(user_message) => {
                         debug!("Quorum reached for XRPLUserMessage: {:?}", user_message);
@@ -440,7 +460,9 @@ impl XrplIngestor {
                     }
                     XRPLMessage::ProverMessage(tx_hash) => {
                         debug!("Quorum reached for XRPLProverMessage: {:?}", tx_hash);
-                        self.prover_tx_routing_request(tx_hash).await?
+                        prover_tx = Some(xrpl_tx_from_hash(tx_hash, &self.client).await?);
+                        self.prover_tx_routing_request(&prover_tx.as_ref().unwrap())
+                            .await?
                     }
                 };
                 debug!("Broadcasting request: {:?}", request);
@@ -457,39 +479,42 @@ impl XrplIngestor {
                     })?;
 
                 match xrpl_message {
-                    XRPLMessage::ProverMessage(_) => {
-                        // TODO: fill in fields
-                        let event = Event::MessageExecuted {
-                            common: CommonEventFields {
-                                r#type: "MESSAGE_EXECUTED".to_owned(),
-                                event_id: "TODO".to_owned(),
-                            },
-                            message_id: "id".to_owned(),
-                            source_chain: "source".to_owned(),
-                            cost: Amount {
-                                token_id: None,
-                                amount: "0".to_owned(),
-                            },
-                            meta: None,
-                        };
-                        let events_response =
-                            self.gmp_api.post_events(vec![event]).await.map_err(|e| {
-                                IngestorError::GenericError(format!(
-                                    "Failed to broadcast message: {}",
-                                    e.to_string()
-                                ))
-                            })?;
-                        let response =
-                            events_response.get(0).ok_or(IngestorError::GenericError(
-                                "Failed to get response from posting events".to_owned(),
-                            ))?;
-                        if response.status != "ACCEPTED" {
-                            return Err(IngestorError::GenericError(format!(
-                                "Failed to post event: {}",
-                                response.error.clone().unwrap_or_default()
-                            )));
+                    XRPLMessage::ProverMessage(_) => match prover_tx.unwrap() {
+                        Transaction::Payment(tx) => {
+                            let common = tx.common;
+                            let event = Event::MessageExecuted {
+                                common: CommonEventFields {
+                                    r#type: "MESSAGE_EXECUTED".to_owned(),
+                                    event_id: common.hash.unwrap(),
+                                },
+                                message_id: "id".to_owned(),       // TODO
+                                source_chain: "source".to_owned(), // TODO
+                                cost: Amount {
+                                    token_id: None,
+                                    amount: tx.amount.size().to_string(),
+                                },
+                                meta: None,
+                            };
+                            let events_response =
+                                self.gmp_api.post_events(vec![event]).await.map_err(|e| {
+                                    IngestorError::GenericError(format!(
+                                        "Failed to broadcast message: {}",
+                                        e.to_string()
+                                    ))
+                                })?;
+                            let response =
+                                events_response.get(0).ok_or(IngestorError::GenericError(
+                                    "Failed to get response from posting events".to_owned(),
+                                ))?;
+                            if response.status != "ACCEPTED" {
+                                return Err(IngestorError::GenericError(format!(
+                                    "Failed to post event: {}",
+                                    response.error.clone().unwrap_or_default()
+                                )));
+                            }
                         }
-                    }
+                        _ => {}
+                    },
                     _ => {}
                 };
                 Ok(())
