@@ -1,4 +1,4 @@
-require('dotenv').config({path: __dirname + '/../.env'});
+require('dotenv').config({ path: __dirname + '/../.env' });
 const express = require('express');
 const bodyParser = require('body-parser');
 const app = express();
@@ -110,17 +110,23 @@ let cc_id_to_message = {};
 
             let task;
             if (event.type === "wasm-quorum_reached") {
-                task = {
-                    id: height,
-                    chain: "xrpl",
-                    timestamp: new Date().toISOString(),
-                    type: "REACT_TO_WASM_EVENT",
-                    meta: event.meta, // TODO: how to get this
-                    task: {
-                        message: JSON.parse(event.attributes.find(attr => attr.key === "content").value),
-                        event_name: "wasm-quorum-reached"
-                    }
-                };
+                let status = event.attributes.find(attr => attr.key === "status").value
+                if (status !== 'succeeded_on_source_chain') {
+                    console.warn("Quorum not reached");
+                    console.warn(event);
+                } else {
+                    task = {
+                        id: height,
+                        chain: "xrpl",
+                        timestamp: new Date().toISOString(),
+                        type: "REACT_TO_WASM_EVENT",
+                        meta: event.meta, // TODO: how to get this
+                        task: {
+                            message: JSON.parse(event.attributes.find(attr => attr.key === "content").value),
+                            event_name: "wasm-quorum-reached"
+                        }
+                    };
+                }
             } else if (event.type === "wasm-routing_outgoing") {
                 let message_id = event.attributes.find(attr => attr.key === "message_id").value;
                 let source_chain = event.attributes.find(attr => attr.key === "source_chain").value;
