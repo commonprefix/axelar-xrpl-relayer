@@ -1,6 +1,8 @@
+require("./instrument.js");
 require('dotenv').config({ path: __dirname + '/../.env' });
 const axios = require('axios');
 const { spawn } = require('child_process');
+const { logError } = require("../mock-gmp-api/utils.js");
 
 const AXELAR_SENDER = process.env.AXELAR_RELAYER_WALLET;
 
@@ -74,7 +76,7 @@ async function fetch_events(event_type, contract, from_height) {
         }
         return events;
     } catch (error) {
-        console.error(`Error executing command: ${error.message}`);
+        logError(`Error executing command: ${error.message}`);
         return [];
     }
 }
@@ -122,8 +124,7 @@ async function get_current_axelar_height() {
                 try {
                     original_payload = (await axios.get(`${process.env.PAYLOAD_CACHE}?hash=${original_payload_hash}`)).data;
                 } catch (error) {
-                    console.error('Failed to process event:', JSON.stringify(event));
-                    console.error('Error fetching payload from cache for hash');
+                    logError(`Failed to process event: ${JSON.stringify(event)}\nError fetching payload from cache.`);
                     continue;
                 }
             }
@@ -160,8 +161,7 @@ async function get_current_axelar_height() {
                             its_payload_hash = event.attributes.find(attr => attr.key === "payload_hash").value;
                             const payload_hash = (await axios.post(process.env.PAYLOAD_CACHE, its_payload)).data.hash;
                             if (payload_hash !== its_payload_hash) {
-                                console.error(`Payload hash mismatch!`);
-                                console.error(`Received hash: ${payload_hash}, expected hash: ${its_payload_hash}`);
+                                logError(`Payload hash mismatch; Received hash: ${payload_hash}, expected hash: ${its_payload_hash}`);
                             }
                             break;
                         }
