@@ -111,7 +111,7 @@ let cc_id_to_message = {};
             let task;
             if (event.type === "wasm-quorum_reached") {
                 let status = event.attributes.find(attr => attr.key === "status").value
-                if (status !== 'succeeded_on_source_chain') {
+                if (!status.includes('succeeded_on_source_chain')) {
                     console.warn("Quorum not reached");
                     console.warn(event);
                 } else {
