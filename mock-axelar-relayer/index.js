@@ -1,4 +1,4 @@
-require('dotenv').config({path: __dirname + '/../.env'});
+require('dotenv').config({ path: __dirname + '/../.env' });
 const axios = require('axios');
 const { spawn } = require('child_process');
 
@@ -101,14 +101,12 @@ async function get_current_axelar_height() {
 
     let latest_height = current_height;
     while (true) {
-        console.log("Fetching events from height:", latest_height);
         let routing_events = await fetch_events('routing', process.env.AXELARNET_GATEWAY, latest_height);
         for (let { event, height, tx } of routing_events) {
             let destination_chain = event.attributes.find(attr => attr.key === "destination_chain").value;
             if (destination_chain !== 'axelar') {
                 continue;
             }
-            console.log(height);
             let source_chain = event.attributes.find(attr => attr.key === "source_chain").value;
             let message_id = event.attributes.find(attr => attr.key === "message_id").value;
             let original_payload_hash = event.attributes.find(attr => attr.key === "payload_hash").value;
@@ -119,15 +117,14 @@ async function get_current_axelar_height() {
                 for (let log of tx.logs) {
                     let contract_called = log.events.find(event => (event.type === "wasm-contract_called" && event.attributes.find(attr => attr.key === "_contract_address").value === process.env.XRPL_GATEWAY_ADDRESS));
                     original_payload = contract_called.attributes.find(attr => attr.key === "payload").value;
-                    console.log("XRPL message: got payload from ContractCalled event:");
-                    console.log(original_payload);
                 }
             } else {
                 try {
                     original_payload = (await axios.get(`http://localhost:5001?hash=${original_payload_hash}`)).data;
                 } catch (error) {
-                    console.error(`Error fetching payload from cache`);
-                    throw new Error('bye');
+                    console.error('Failed to process event:', JSON.stringify(event));
+                    console.error('Error fetching payload from cache for hash');
+                    continue;
                 }
             }
             let execute_msg = {
@@ -161,12 +158,10 @@ async function get_current_axelar_height() {
                         if (event.attributes.find(attr => attr.key === "_contract_address").value === process.env.AXELARNET_GATEWAY) {
                             its_payload = event.attributes.find(attr => attr.key === "payload").value;
                             its_payload_hash = event.attributes.find(attr => attr.key === "payload_hash").value;
-                            console.log(`Posting Payload: ${its_payload}`);
                             const payload_hash = (await axios.post('http://localhost:5001/', its_payload)).data.hash;
-                            console.log(`Payload hash: ${payload_hash}`);
                             if (payload_hash !== its_payload_hash) {
                                 console.error(`Payload hash mismatch!`);
-                                console.log(`Received hash: ${payload_hash}, expected hash: ${its_payload_hash}`);
+                                console.error(`Received hash: ${payload_hash}, expected hash: ${its_payload_hash}`);
                             }
                             break;
                         }
