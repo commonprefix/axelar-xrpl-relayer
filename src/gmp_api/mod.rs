@@ -3,6 +3,7 @@ pub mod gmp_types;
 use async_stream::stream;
 use core::str;
 use futures::Stream;
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::{collections::HashMap, pin::Pin, time::Duration};
 use tracing::{debug, info, warn};
@@ -36,26 +37,58 @@ impl GmpApi {
         })
     }
 
-    pub async fn get_tasks_action(&self, after: Option<i64>) -> Result<Vec<Task>, GmpApiError> {
-        let request_url = format!("{}/chains/{}/tasks", self.rpc_url, self.chain);
-
-        let mut request = self.client.get(&request_url);
-        if let Some(after) = after {
-            request = request.query(&[("after", after)]);
-            debug!("Requesting tasks after: {}", after);
-        }
-        let res = request
+    async fn request_text_if_success(
+        request: reqwest::RequestBuilder,
+    ) -> Result<String, GmpApiError> {
+        let response = request
             .send()
             .await
             .map_err(|e| GmpApiError::RequestFailed(e.to_string()))?;
 
-        res.error_for_status_ref()
+        // Convert any non-200 status to an error, otherwise retrieve the response body.
+        if response.status().is_success() {
+            response
+                .text()
+                .await
+                .map_err(|e| GmpApiError::InvalidResponse(e.to_string()))
+        } else {
+            Err(GmpApiError::ErrorResponse(
+                response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Failed to read error body".to_string()),
+            ))
+        }
+    }
+
+    async fn request_json<T: DeserializeOwned>(
+        request: reqwest::RequestBuilder,
+    ) -> Result<T, GmpApiError> {
+        let response = request
+            .send()
+            .await
+            .map_err(|e| GmpApiError::RequestFailed(e.to_string()))?;
+
+        response
+            .error_for_status_ref()
             .map_err(|e| GmpApiError::ErrorResponse(e.to_string()))?;
 
-        let response: HashMap<String, Vec<Value>> = res
-            .json()
+        response
+            .json::<T>()
             .await
-            .map_err(|e| GmpApiError::InvalidResponse(e.to_string()))?;
+            .map_err(|e| GmpApiError::InvalidResponse(e.to_string()))
+    }
+
+    pub async fn get_tasks_action(&self, after: Option<i64>) -> Result<Vec<Task>, GmpApiError> {
+        let request_url = format!("{}/chains/{}/tasks", self.rpc_url, self.chain);
+        let mut request = self.client.get(&request_url);
+
+        if let Some(after) = after {
+            request = request.query(&[("after", after)]);
+            debug!("Requesting tasks after: {}", after);
+        }
+
+        let response: HashMap<String, Vec<Value>> = GmpApi::request_json(request).await?;
         debug!("Response from {}: {:?}", request_url, response);
 
         let tasks_json = response
@@ -77,14 +110,9 @@ impl GmpApi {
     pub fn get_tasks(&self, after: Option<i64>) -> Pin<Box<dyn Stream<Item = Vec<Task>> + '_>> {
         let s = stream! {
             loop {
-                let tasks = self.get_tasks_action(after).await;
-                match tasks {
-                    Ok(tasks) => {
-                        yield tasks;
-                    }
-                    Err(e) => {
-                        warn!("Failed to get tasks: {:?}", e);
-                    }
+                match self.get_tasks_action(after).await {
+                    Ok(tasks) => yield tasks,
+                    Err(e) => warn!("Failed to get tasks: {:?}", e)
                 }
                 tokio::time::sleep(TASKS_POLL_INTERVAL).await;
             }
@@ -100,26 +128,16 @@ impl GmpApi {
         let mut map = HashMap::new();
         map.insert("events", events);
 
-        let res = self
+        let url = format!("{}/chains/{}/events", self.rpc_url, self.chain);
+        let request = self
             .client
-            .post(&format!("{}/chains/{}/events", self.rpc_url, self.chain))
-            .body(serde_json::to_string(&map).unwrap())
+            .post(&url)
             .header("Content-Type", "text/plain")
-            .send()
-            .await
-            .map_err(|e| GmpApiError::RequestFailed(e.to_string()))?;
+            .body(serde_json::to_string(&map).unwrap());
 
-        match res.error_for_status_ref() {
-            Ok(_) => {
-                let response: PostEventResponse = res
-                    .json()
-                    .await
-                    .map_err(|e| GmpApiError::InvalidResponse(e.to_string()))?;
-                info!("Response from POST: {:?}", response);
-                Ok(response.results)
-            }
-            Err(e) => Err(GmpApiError::ErrorResponse(e.to_string())),
-        }
+        let response: PostEventResponse = GmpApi::request_json(request).await?;
+        info!("Response from POST: {:?}", response);
+        Ok(response.results)
     }
 
     pub async fn post_broadcast(
@@ -127,29 +145,19 @@ impl GmpApi {
         contract_address: String,
         data: &BroadcastRequest,
     ) -> Result<String, GmpApiError> {
+        let url = format!("{}/contracts/{}/broadcasts", self.rpc_url, contract_address);
+
         let payload = match data {
             BroadcastRequest::Generic(value) => value,
         };
 
-        let res = self
+        let request = self
             .client
-            .post(&format!(
-                "{}/contracts/{}/broadcasts",
-                self.rpc_url, contract_address
-            ))
-            .body(serde_json::to_string(payload).unwrap())
+            .post(url)
             .header("Content-Type", "text/plain")
-            .send()
-            .await
-            .map_err(|e| GmpApiError::RequestFailed(e.to_string()))?;
+            .body(serde_json::to_string(payload).unwrap());
 
-        let status = res.status();
-        let body = res.text().await.unwrap();
-        if status.is_success() {
-            return Ok(body);
-        } else {
-            return Err(GmpApiError::ErrorResponse(body));
-        }
+        GmpApi::request_text_if_success(request).await
     }
 
     pub async fn post_query(
@@ -157,37 +165,19 @@ impl GmpApi {
         contract_address: String,
         data: &QueryRequest,
     ) -> Result<String, GmpApiError> {
+        let url = format!("{}/contracts/{}/queries", self.rpc_url, contract_address);
+
         let payload = match data {
             QueryRequest::Generic(value) => value,
         };
 
-        let res = self
+        let request = self
             .client
-            .post(&format!(
-                "{}/contracts/{}/queries",
-                self.rpc_url, contract_address
-            ))
-            .body(serde_json::to_string(payload).unwrap())
+            .post(url)
             .header("Content-Type", "text/plain")
-            .send()
-            .await
-            .map_err(|e| GmpApiError::RequestFailed(e.to_string()))?;
+            .body(serde_json::to_string(payload).unwrap());
 
-        match res.error_for_status_ref() {
-            Ok(_) => {
-                let response = res
-                    .text()
-                    .await
-                    .map_err(|e| GmpApiError::InvalidResponse(e.to_string()))?;
-                debug!("Response from query broadcast: {:?}", response);
-                Ok(response)
-            }
-            Err(e) => Err(GmpApiError::ErrorResponse(e.to_string())),
-        }
-    }
-
-    pub async fn verify_messages() {
-        todo!()
+        GmpApi::request_text_if_success(request).await
     }
 }
 
