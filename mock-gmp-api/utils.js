@@ -255,6 +255,32 @@ async function processEvent(event, height) {
     }
 }
 
+const autoincement_redis_key = 'gmp_api:task_autoincrement';
+async function initTaskAutoIncrement(redisClient) {
+    try {
+        const storedValue = await redisClient.get(autoincement_redis_key);
+        if (storedValue) {
+            let value = parseInt(storedValue, 10);
+            console.log(`(Re)loaded task_autoincrement from Redis: ${value}`);
+            return value;
+        } else {
+            console.log("No existing task_autoincrement in Redis; starting at 0");
+            return 0;
+        }
+    } catch (err) {
+        console.error("Error fetching task_autoincrement from Redis:", err.message);
+    }
+    return 0;
+}
+
+async function updateTaskAutoIncrement(redisClient, value) {
+    try {
+        await redisClient.set(autoincement_redis_key, String(value));
+    } catch (err) {
+        console.error("Error saving task_autoincrement to Redis:", err.message);
+    }
+}
+
 module.exports = {
     logError,
     spawnAsync,
@@ -262,5 +288,7 @@ module.exports = {
     getCurrentAxelarHeight,
     fetchEvents,
     isKnownBroadcastType,
-    processEvent
+    processEvent,
+    initTaskAutoIncrement,
+    updateTaskAutoIncrement
 };

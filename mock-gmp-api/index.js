@@ -1,10 +1,12 @@
 require("./instrument.js");
 const express = require('express');
 const bodyParser = require('body-parser');
-const { logError, delay, fetchEvents, processEvent, getCurrentAxelarHeight, isKnownBroadcastType, spawnAsync } = require('./utils');
+const { logError, delay, fetchEvents, processEvent, getCurrentAxelarHeight, isKnownBroadcastType, spawnAsync, initTaskAutoIncrement, updateTaskAutoIncrement } = require('./utils');
+const { createClient } = require('redis');
 
 const app = express();
 const port = 3001;
+const redisClient = createClient({ url: process.env.REDIS_SERVER });
 
 const AXELAR_SENDER = process.env.GMP_API_WALLET;
 const START_HEIGHT = 0;
@@ -14,7 +16,7 @@ let task_autoincrement = 0;
 /**
  * Main event loop: polls events from three contracts, creates new tasks when relevant events occur.
  */
-(async function mainLoop() {
+async function mainLoop() {
     let latestHeight = START_HEIGHT || await getCurrentAxelarHeight();
 
     while (true) {
@@ -34,9 +36,10 @@ let task_autoincrement = 0;
                 let task = await processEvent(event, height);
 
                 if (task) {
-                    console.log(`Creating task: ${JSON.stringify(task, null, 2)}`);
                     task.id = task_autoincrement++;
+                    console.log(`Creating task: ${JSON.stringify(task, null, 2)}`);
                     tasks.push(task);
+                    updateTaskAutoIncrement(redisClient, task_autoincrement);
                 }
             }
 
@@ -51,7 +54,7 @@ let task_autoincrement = 0;
             await delay(2000);
         }
     }
-})();
+};
 
 app.use(bodyParser.text());
 
@@ -97,6 +100,7 @@ app.post('/chains/xrpl/events', (req, res) => {
                     payload: event.payload
                 }
             });
+            updateTaskAutoIncrement(redisClient, task_autoincrement);
         }
     }
     let response = { results: bodyJson.events.map((_, index) => ({ status: "ACCEPTED", index })) }
@@ -156,7 +160,7 @@ app.post('/contracts/:contract/queries', async (req, res) => {
         '--output', 'json'
     ]
 
-    console.log("Executing axelard command: axelard" + args.join(' '));
+    console.log("Executing axelard command: axelard " + args.join(' '));
 
     let { stdout, stderr } = await spawnAsync('axelard', args);
     if (stderr) {
@@ -173,7 +177,15 @@ app.post('/contracts/:contract/queries', async (req, res) => {
     }
 });
 
-// Start the server
-app.listen(port, () => {
-    console.log(`Server is running on http://localhost:${port}`);
-});
+(async function start() {
+    redisClient.on('error', err => console.log('Redis Client Error', err));
+    await redisClient.connect();
+
+    task_autoincrement = await initTaskAutoIncrement(redisClient);
+
+    mainLoop();
+
+    app.listen(port, () => {
+        console.log(`Server is running on http://localhost:${port}`);
+    });
+})();
