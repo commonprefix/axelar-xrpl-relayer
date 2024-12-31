@@ -71,3 +71,9 @@ pub enum IngestorError {
     #[error("Generic error: {0}")]
     GenericError(String),
 }
+
+#[derive(Error, Debug)]
+pub enum DistributorError {
+    #[error("Generic error: {0}")]
+    GenericError(String),
+}

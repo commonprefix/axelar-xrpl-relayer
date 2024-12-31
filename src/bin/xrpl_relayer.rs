@@ -29,6 +29,8 @@ async fn main() {
     let tasks_queue = Arc::new(Queue::new(&config.queue_address, "tasks").await);
     let events_queue = Arc::new(Queue::new(&config.queue_address, "events").await);
     let gmp_api = Arc::new(gmp_api::GmpApi::new(&config.gmp_api_url, "xrpl").unwrap());
+    let redis_client = redis::Client::open(config.redis_server.clone()).unwrap();
+    let redis_pool = r2d2::Pool::builder().build(redis_client).unwrap();
     let xrpl_includer = XrplIncluder::new(config.clone(), gmp_api.clone())
         .await
         .unwrap();
@@ -69,7 +71,7 @@ async fn main() {
 
     let tasks_queue_ref = tasks_queue.clone();
     let gmp_api_ref = gmp_api.clone();
-    let mut distributor = Distributor::new();
+    let mut distributor = Distributor::new(redis_pool);
     let distributor_handle = tokio::spawn({
         let shutdown_rx = shutdown_rx.clone();
         async move {

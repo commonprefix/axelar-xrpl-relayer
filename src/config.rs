@@ -13,6 +13,7 @@ pub struct Config {
     pub xrpl_multisig: String,
     pub xrpl_gateway_address: String,
     pub xrpl_multisig_prover_address: String,
+    pub redis_server: String,
 }
 
 impl Config {
@@ -30,6 +31,7 @@ impl Config {
                 .context("Missing XRPL_GATEWAY_ADDRESS")?,
             xrpl_multisig_prover_address: env::var("XRPL_MULTISIG_PROVER_ADDRESS")
                 .context("Missing XRPL_MULTISIG_PROVER_ADDRESS")?,
+            redis_server: env::var("REDIS_SERVER").context("Missing REDIS_SERVER")?,
         })
     }
 }

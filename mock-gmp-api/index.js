@@ -35,6 +35,7 @@ let task_autoincrement = 0;
 
                 if (task) {
                     console.log(`Creating task: ${JSON.stringify(task, null, 2)}`);
+                    task.id = task_autoincrement++;
                     tasks.push(task);
                 }
             }
