@@ -174,7 +174,8 @@ async function get_current_axelar_height() {
                                     its_payload,
                                     {
                                         headers: {
-                                            'Authorization': `Bearer ${process.env.PAYLOAD_CACHE_AUTH_TOKEN}`
+                                            'Authorization': `Bearer ${process.env.PAYLOAD_CACHE_AUTH_TOKEN}`,
+                                            'Content-Type': 'text/plain'
                                         }
                                     }
                                 )
