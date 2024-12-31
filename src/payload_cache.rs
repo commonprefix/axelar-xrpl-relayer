@@ -16,13 +16,15 @@ struct ErrorResponse {
 pub struct PayloadCacheClient {
     client: Client,
     base_url: String,
+    auth_token: String,
 }
 
 impl PayloadCacheClient {
-    pub fn new(base_url: &str) -> Self {
+    pub fn new(base_url: &str, auth_token: &str) -> Self {
         PayloadCacheClient {
             client: Client::new(),
             base_url: base_url.to_string(),
+            auth_token: auth_token.to_string(),
         }
     }
 
@@ -30,6 +32,7 @@ impl PayloadCacheClient {
         let resp = self
             .client
             .post(&self.base_url)
+            .header("Authorization", format!("Bearer {}", self.auth_token))
             .body(payload.to_string())
             .send()
             .await?;
@@ -47,7 +50,12 @@ impl PayloadCacheClient {
 
     pub async fn get_payload(&self, hash: &str) -> Result<String, Box<dyn Error>> {
         let get_url = format!("{}?hash={}", self.base_url, hash);
-        let get_resp = self.client.get(&get_url).send().await?;
+        let get_resp = self
+            .client
+            .get(&get_url)
+            .header("Authorization", format!("Bearer {}", self.auth_token))
+            .send()
+            .await?;
 
         if get_resp.status().is_success() {
             let returned_payload = get_resp.text().await?;

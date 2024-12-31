@@ -189,7 +189,8 @@ impl XrplIngestor {
         let client = xrpl_http_client::Client::builder()
             .base_url(&config.xrpl_rpc)
             .build();
-        let payload_cache = PayloadCacheClient::new(&config.payload_cache);
+        let payload_cache =
+            PayloadCacheClient::new(&config.payload_cache, &config.payload_cache_auth_token);
         Self {
             gmp_api,
             config,
