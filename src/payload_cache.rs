@@ -1,4 +1,7 @@
-use reqwest::Client;
+use reqwest::{
+    header::{AUTHORIZATION, CONTENT_TYPE},
+    Client,
+};
 use serde::Deserialize;
 use std::error::Error;
 
@@ -32,7 +35,8 @@ impl PayloadCacheClient {
         let resp = self
             .client
             .post(&self.base_url)
-            .header("Authorization", format!("Bearer {}", self.auth_token))
+            .header(AUTHORIZATION, format!("Bearer {}", self.auth_token))
+            .header(CONTENT_TYPE, "text/plain")
             .body(payload.to_string())
             .send()
             .await?;
