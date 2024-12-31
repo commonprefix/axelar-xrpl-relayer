@@ -124,14 +124,14 @@ async function get_current_axelar_height() {
                 try {
                     original_payload = (
                         (await axios.get(
-                          `${process.env.PAYLOAD_CACHE}?hash=${original_payload_hash}`,
-                          {
-                            headers: {
-                              'Authorization': `Bearer ${process.env.PAYLOAD_CACHE_AUTH_TOKEN}`
+                            `${process.env.PAYLOAD_CACHE}?hash=${original_payload_hash}`,
+                            {
+                                headers: {
+                                    'Authorization': `Bearer ${process.env.PAYLOAD_CACHE_AUTH_TOKEN}`
+                                }
                             }
-                          }
-                        )
-                      )).data;
+                        ))
+                    ).data;
                 } catch (error) {
                     logError(`Failed to process event: ${JSON.stringify(event)}\nError fetching payload from cache.`);
                     continue;
