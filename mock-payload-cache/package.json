@@ -9,7 +9,11 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "body-parser": "^1.20.3",
     "dotenv": "^16.4.7",
-    "keccak256": "^1.0.6"
+    "express": "^4.21.2",
+    "keccak256": "^1.0.6",
+    "swagger-ui-express": "^5.0.1",
+    "yaml": "^2.7.0"
   }
 }
