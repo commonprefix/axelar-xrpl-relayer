@@ -122,7 +122,16 @@ async function get_current_axelar_height() {
                 }
             } else {
                 try {
-                    original_payload = (await axios.get(`${process.env.PAYLOAD_CACHE}?hash=${original_payload_hash}`)).data;
+                    original_payload = (
+                        (await axios.get(
+                          `${process.env.PAYLOAD_CACHE}?hash=${original_payload_hash}`,
+                          {
+                            headers: {
+                              'Authorization': `Bearer ${process.env.PAYLOAD_CACHE_AUTH_TOKEN}`
+                            }
+                          }
+                        )
+                      )).data;
                 } catch (error) {
                     logError(`Failed to process event: ${JSON.stringify(event)}\nError fetching payload from cache.`);
                     continue;
@@ -159,7 +168,17 @@ async function get_current_axelar_height() {
                         if (event.attributes.find(attr => attr.key === "_contract_address").value === process.env.AXELARNET_GATEWAY) {
                             its_payload = event.attributes.find(attr => attr.key === "payload").value;
                             its_payload_hash = event.attributes.find(attr => attr.key === "payload_hash").value;
-                            const payload_hash = (await axios.post(process.env.PAYLOAD_CACHE, its_payload)).data.hash;
+                            const payload_hash = (
+                                await axios.post(
+                                    process.env.PAYLOAD_CACHE,
+                                    its_payload,
+                                    {
+                                        headers: {
+                                            'Authorization': `Bearer ${process.env.PAYLOAD_CACHE_AUTH_TOKEN}`
+                                        }
+                                    }
+                                )
+                            ).data.hash;
                             if (payload_hash !== its_payload_hash) {
                                 logError(`Payload hash mismatch; Received hash: ${payload_hash}, expected hash: ${its_payload_hash}`);
                             }
