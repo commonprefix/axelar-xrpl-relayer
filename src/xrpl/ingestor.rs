@@ -304,13 +304,16 @@ impl XrplIngestor {
             },
             message: interchain_transfer_response
                 .message_with_payload
+                .clone()
                 .unwrap()
                 .message,
             destination_chain: xrpl_user_message.destination_chain.to_string(),
-            payload: xrpl_user_message_with_payload
+            payload: interchain_transfer_response
+                .message_with_payload
+                .clone()
+                .unwrap()
                 .payload
-                .map(|p| p.to_hex())
-                .unwrap_or_default(),
+                .to_string(),
             meta: Some(Metadata {
                 tx_id: None,
                 from_address: None,
