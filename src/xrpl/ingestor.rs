@@ -66,12 +66,13 @@ async fn build_xrpl_user_message(
         (Some(payload_str), Some(hash))
     } else if let Ok(payload_hash_str) = payload_hash_memo {
         // If we have 'payload_hash', retrieve payload from the cache.
-        let payload_retrieved = payload_cache
-            .get_payload(&hex::encode(&payload_hash_str))
-            .await
-            .map_err(|e| {
-                IngestorError::GenericError(format!("Failed to get payload from cache: {}", e))
-            })?;
+        let payload_retrieved =
+            payload_cache
+                .get_payload(&payload_hash_str)
+                .await
+                .map_err(|e| {
+                    IngestorError::GenericError(format!("Failed to get payload from cache: {}", e))
+                })?;
         (Some(payload_retrieved), Some(payload_hash_str))
     } else {
         (None, None)
