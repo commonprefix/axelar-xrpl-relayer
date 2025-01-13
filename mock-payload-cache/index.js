@@ -57,7 +57,7 @@ app.get('/payload', (req, res) => {
         return res.status(400).json({ error: 'Missing hash query parameter.' });
     }
 
-    const payload = store[queryHash];
+    const payload = store[queryHash.toLowerCase()];
 
     if (payload) {
         return res.status(200).type('text/plain').send(payload);
