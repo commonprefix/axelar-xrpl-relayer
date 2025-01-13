@@ -131,19 +131,8 @@ async fn build_xrpl_user_message(
     }
 
     if payload.is_some() {
-        message_with_payload.payload = Some(
-            payload
-                .unwrap()
-                .as_bytes()
-                .to_vec()
-                .try_into()
-                .map_err(|e| {
-                    IngestorError::GenericError(format!(
-                        "Failed to convert payload to HexBinary: {}",
-                        e
-                    ))
-                })?,
-        );
+        let payload_bytes = hex::decode(payload.unwrap()).unwrap();
+        message_with_payload.payload = Some(payload_bytes.try_into().unwrap());
     }
 
     Ok(message_with_payload)
@@ -458,14 +447,30 @@ impl XrplIngestor {
         Ok((self.config.xrpl_multisig_prover_address.clone(), request))
     }
 
-    pub fn user_message_routing_request(
+    pub async fn user_message_routing_request(
         &self,
         user_message: XRPLUserMessage,
     ) -> Result<(String, BroadcastRequest), IngestorError> {
+        let mut payload = None;
+        if user_message.payload_hash.is_some() {
+            let payload_string = Some(
+                self.payload_cache
+                    .get_payload(&str::from_utf8(&user_message.payload_hash.unwrap()).unwrap())
+                    .await
+                    .map_err(|e| {
+                        IngestorError::GenericError(format!(
+                            "Failed to get payload from cache: {}",
+                            e
+                        ))
+                    })?,
+            );
+            let payload_bytes = hex::decode(payload_string.unwrap()).unwrap();
+            payload = Some(payload_bytes.try_into().unwrap());
+        }
         let execute_msg = xrpl_gateway::msg::ExecuteMsg::RouteIncomingMessages(vec![
             XRPLUserMessageWithPayload {
                 message: user_message,
-                payload: None, // TODO
+                payload,
             },
         ]);
         let request =
@@ -489,7 +494,7 @@ impl XrplIngestor {
                 let (contract_address, request) = match xrpl_message.clone() {
                     XRPLMessage::UserMessage(msg) => {
                         debug!("Quorum reached for XRPLUserMessage: {:?}", msg);
-                        self.user_message_routing_request(msg)?
+                        self.user_message_routing_request(msg).await?
                     }
                     XRPLMessage::ProverMessage(tx_hash) => {
                         debug!("Quorum reached for XRPLProverMessage: {:?}", tx_hash);
