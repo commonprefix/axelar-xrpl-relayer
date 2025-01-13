@@ -13,9 +13,7 @@ const START_HEIGHT = 0;
 let tasks = [];
 let task_autoincrement = 0;
 
-/**
- * Main event loop: polls events from three contracts, creates new tasks when relevant events occur.
- */
+
 async function mainLoop() {
     let latestHeight = START_HEIGHT || await getCurrentAxelarHeight();
 
@@ -30,7 +28,6 @@ async function mainLoop() {
             // Flatten the array of arrays
             const events = allEvents.flat();
 
-            // Process each event
             for (let { event, height } of events) {
                 height = Number(height);
                 let task = await processEvent(event, height);

@@ -139,7 +139,7 @@ function handleQuorumReached(event, height) {
         chain: 'xrpl',
         timestamp: new Date().toISOString(),
         type: 'REACT_TO_WASM_EVENT',
-        meta: null, // or event.meta if you have a way of generating that
+        meta: null,
         task: {
             message: JSON.parse(content),
             event_name: 'wasm-quorum-reached'
@@ -161,7 +161,7 @@ async function handleRoutingOutgoing(event, height) {
         return null;
     }
 
-    // Attempt to retrieve payload from local cache.
+    // Attempt to retrieve payload from payload cache.
     let payload;
     try {
         const url = `${process.env.PAYLOAD_CACHE}?hash=${payloadHash}`;
