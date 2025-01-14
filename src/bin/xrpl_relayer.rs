@@ -26,8 +26,8 @@ async fn main() {
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
-    let tasks_queue = Arc::new(Queue::new(&config.queue_address, "tasks").await);
-    let events_queue = Arc::new(Queue::new(&config.queue_address, "events").await);
+    let tasks_queue_arc = Queue::new(&config.queue_address, "tasks").await;
+    let events_queue_arc = Queue::new(&config.queue_address, "events").await;
     let gmp_api = Arc::new(gmp_api::GmpApi::new(&config.gmp_api_url, "xrpl").unwrap());
     let redis_client = redis::Client::open(config.redis_server.clone()).unwrap();
     let redis_pool = r2d2::Pool::builder().build(redis_client).unwrap();
@@ -39,45 +39,47 @@ async fn main() {
     let account = AccountId::from_address(&config.xrpl_multisig).unwrap();
 
     let mut subscriber = Subscriber::new_xrpl(&config.xrpl_rpc).await;
-    let events_queue_ref = events_queue.clone();
+    let events_queue_clone = events_queue_arc.clone();
     let subscriber_handle = tokio::spawn({
         let shutdown_rx = shutdown_rx.clone();
         async move {
+            let events_queue = events_queue_clone.read().await;
             subscriber
-                .run(account.to_address(), events_queue_ref, shutdown_rx)
+                .run(account.to_address(), events_queue, shutdown_rx)
                 .await;
         }
     });
 
-    let tasks_queue_ref = tasks_queue.clone();
+    let tasks_queue_clone = tasks_queue_arc.clone();
     let includer_handle = tokio::spawn({
         let shutdown_rx = shutdown_rx.clone();
         async move {
-            xrpl_includer.run(tasks_queue_ref, shutdown_rx).await;
+            let tasks_queue = tasks_queue_clone.read().await;
+            xrpl_includer.run(tasks_queue, shutdown_rx).await;
         }
     });
 
-    let events_queue_ref = events_queue.clone();
-    let tasks_queue_ref = tasks_queue.clone();
+    let events_queue_clone = events_queue_arc.clone();
+    let tasks_queue_clone = tasks_queue_arc.clone();
     let ingestor = Ingestor::new(gmp_api.clone(), config.clone());
     let ingestor_handle = tokio::spawn({
         let shutdown_rx = shutdown_rx.clone();
         async move {
-            ingestor
-                .run(events_queue_ref, tasks_queue_ref, shutdown_rx)
-                .await;
+            let events_queue = events_queue_clone.read().await;
+            let tasks_queue = tasks_queue_clone.read().await;
+
+            ingestor.run(events_queue, tasks_queue, shutdown_rx).await;
         }
     });
 
-    let tasks_queue_ref = tasks_queue.clone();
     let gmp_api_ref = gmp_api.clone();
+    let tasks_queue_clone = tasks_queue_arc.clone();
     let mut distributor = Distributor::new(redis_pool);
     let distributor_handle = tokio::spawn({
         let shutdown_rx = shutdown_rx.clone();
         async move {
-            distributor
-                .run(gmp_api_ref, tasks_queue_ref, shutdown_rx)
-                .await;
+            let tasks_queue = tasks_queue_clone.read().await;
+            distributor.run(gmp_api_ref, tasks_queue, shutdown_rx).await;
         }
     });
 

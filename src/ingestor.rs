@@ -5,7 +5,7 @@ use lapin::{
     Consumer,
 };
 use std::sync::Arc;
-use tokio::sync::watch;
+use tokio::sync::{watch, RwLockReadGuard};
 use tracing::{debug, error, info, warn};
 
 use crate::{
@@ -70,8 +70,8 @@ impl Ingestor {
 
     pub async fn run(
         &self,
-        events_queue: Arc<Queue>,
-        tasks_queue: Arc<Queue>,
+        events_queue: RwLockReadGuard<'_, Queue>,
+        tasks_queue: RwLockReadGuard<'_, Queue>,
         mut shutdown_rx: watch::Receiver<bool>,
     ) -> () {
         let mut events_consumer = events_queue.consumer().await.unwrap();

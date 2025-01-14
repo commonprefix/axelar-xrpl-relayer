@@ -4,7 +4,7 @@ use lapin::{
     Consumer,
 };
 use std::{future::Future, sync::Arc};
-use tokio::sync::watch;
+use tokio::sync::{watch, RwLockReadGuard};
 use tracing::{debug, error, info};
 
 use crate::{
@@ -87,8 +87,11 @@ where
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await
     }
 
-    pub async fn run(&self, queue: Arc<Queue>, mut shutdown_rx: watch::Receiver<bool>) -> () {
-        let queue = queue.clone();
+    pub async fn run(
+        &self,
+        queue: RwLockReadGuard<'_, Queue>,
+        mut shutdown_rx: watch::Receiver<bool>,
+    ) -> () {
         let mut consumer = queue.consumer().await.unwrap();
         loop {
             tokio::select! {
@@ -147,6 +150,7 @@ where
                         .broadcast(tx_blob)
                         .await
                         .map_err(|e| IncluderError::ConsumerError(e.to_string()))?;
+                    // TODO: publish GAS_REFUNED event
                     Ok(())
                 }
                 _ => Err(IncluderError::IrrelevantTask),

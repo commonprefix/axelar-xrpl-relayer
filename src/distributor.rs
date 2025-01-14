@@ -2,7 +2,7 @@ use std::{default, sync::Arc};
 
 use r2d2::{Pool, PooledConnection};
 use redis::Commands;
-use tokio::sync::watch;
+use tokio::sync::{watch, RwLockReadGuard};
 use tracing::{info, warn};
 
 use crate::{
@@ -46,7 +46,7 @@ impl Distributor {
         Ok(())
     }
 
-    async fn work(&mut self, gmp_api: Arc<GmpApi>, queue: Arc<Queue>) -> () {
+    async fn work(&mut self, gmp_api: Arc<GmpApi>, queue: Queue) -> () {
         let tasks_res = gmp_api.get_tasks_action(Some(self.last_task_id)).await;
         match tasks_res {
             Ok(tasks) => {
@@ -74,7 +74,7 @@ impl Distributor {
     pub async fn run(
         &mut self,
         gmp_api: Arc<GmpApi>,
-        queue: Arc<Queue>,
+        queue: RwLockReadGuard<'_, Queue>,
         mut shutdown_rx: watch::Receiver<bool>,
     ) -> () {
         loop {

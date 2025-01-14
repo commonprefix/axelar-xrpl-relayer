@@ -341,7 +341,7 @@ impl XrplIngestor {
             message_id: tx_hash, // TODO: Should this be the its hub message id?
             refund_address: payment.common.account.clone(),
             payment: gmp_types::Amount {
-                token_id: None, // TODO: should this be None when referring to Drops?
+                token_id: None,
                 amount: gas_amount.to_string(),
             },
             meta: None,
@@ -486,6 +486,7 @@ impl XrplIngestor {
     pub async fn handle_wasm_event(&self, task: ReactToWasmEventTask) -> Result<(), IngestorError> {
         let event_name = task.task.event_name.clone();
 
+        // TODO: check the source contract of the event
         match task.task.event_name.as_str() {
             "wasm-quorum-reached" => {
                 let xrpl_message = task.task.message.clone();
