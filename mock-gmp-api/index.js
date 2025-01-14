@@ -98,6 +98,7 @@ app.post('/chains/xrpl/events', (req, res) => {
                 }
             });
             updateTaskAutoIncrement(redisClient, task_autoincrement);
+            console.log(`Creating task: ${JSON.stringify(tasks[tasks.length - 1], null, 2)}`);
         }
     }
     let response = { results: bodyJson.events.map((_, index) => ({ status: "ACCEPTED", index })) }
@@ -133,7 +134,8 @@ app.post('/contracts/:contract/broadcasts', async (req, res) => {
             return res.status(404).json({ error: 'Unknown broadcast type' });
         }
     } catch (error) {
-        logError('Broadcast error:', error);
+        logError('Broadcast error:');
+        logError(error)
         return res.status(500).json({ error: error.message });
     }
 });
