@@ -455,7 +455,7 @@ impl XrplIngestor {
         if user_message.payload_hash.is_some() {
             let payload_string = Some(
                 self.payload_cache
-                    .get_payload(&str::from_utf8(&user_message.payload_hash.unwrap()).unwrap())
+                    .get_payload(&hex::encode(&user_message.payload_hash.unwrap()))
                     .await
                     .map_err(|e| {
                         IngestorError::GenericError(format!(
