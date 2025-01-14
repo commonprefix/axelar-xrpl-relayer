@@ -103,92 +103,98 @@ async function get_current_axelar_height() {
 
     let latest_height = current_height;
     while (true) {
-        let routing_events = await fetch_events('routing', process.env.AXELARNET_GATEWAY, latest_height);
-        for (let { event, height, tx } of routing_events) {
-            let destination_chain = event.attributes.find(attr => attr.key === "destination_chain").value;
-            if (destination_chain !== 'axelar') {
-                continue;
-            }
-            let source_chain = event.attributes.find(attr => attr.key === "source_chain").value;
-            let message_id = event.attributes.find(attr => attr.key === "message_id").value;
-            let original_payload_hash = event.attributes.find(attr => attr.key === "payload_hash").value;
-
-            // Convert the payload on Axelarnet Gateway
-            let original_payload = null;
-            if (source_chain == 'xrpl') {
-                for (let log of tx.logs) {
-                    let contract_called = log.events.find(event => (event.type === "wasm-contract_called" && event.attributes.find(attr => attr.key === "_contract_address").value === process.env.XRPL_GATEWAY_ADDRESS));
-                    original_payload = contract_called.attributes.find(attr => attr.key === "payload").value;
-                }
-            } else {
-                try {
-                    original_payload = (
-                        (await axios.get(
-                            `${process.env.PAYLOAD_CACHE}?hash=${original_payload_hash}`,
-                            {
-                                headers: {
-                                    'Authorization': `Bearer ${process.env.PAYLOAD_CACHE_AUTH_TOKEN}`
-                                }
-                            }
-                        ))
-                    ).data;
-                } catch (error) {
-                    logError(`Failed to process event: ${JSON.stringify(event)}\nError fetching payload from cache.`);
+        try {
+            let routing_events = await fetch_events('routing', process.env.AXELARNET_GATEWAY, latest_height);
+            for (let { event, height, tx } of routing_events) {
+                let destination_chain = event.attributes.find(attr => attr.key === "destination_chain").value;
+                if (destination_chain !== 'axelar') {
                     continue;
                 }
-            }
-            let execute_msg = {
-                execute: {
-                    cc_id: {
-                        source_chain,
-                        message_id
-                    },
-                    payload: original_payload
-                }
-            };
+                let source_chain = event.attributes.find(attr => attr.key === "source_chain").value;
+                let message_id = event.attributes.find(attr => attr.key === "message_id").value;
+                let original_payload_hash = event.attributes.find(attr => attr.key === "payload_hash").value;
 
-            const command = 'axelard';
-            const args = [
-                'tx', 'wasm', 'execute', process.env.AXELARNET_GATEWAY, JSON.stringify(execute_msg),
-                '--from', AXELAR_SENDER,
-                '--chain-id', process.env.AXELAR_CHAIN_ID,
-                '--gas', 'auto',
-                '--gas-adjustment', '1.4',
-                '--gas-prices', process.env.AXELAR_GAS_PRICES,
-                '--output', 'json',
-                '--keyring-backend', 'test',
-                '--node', process.env.AXELAR_RPC_URL,
-                '-y'
-            ];
-            let execute_res = JSON.parse((await spawnAsync(command, args)).stdout);
-            let payload = null;
-            for (let log of execute_res.logs) {
-                for (let event of log.events) {
-                    if (event.type === "wasm-contract_called") {
-                        if (event.attributes.find(attr => attr.key === "_contract_address").value === process.env.AXELARNET_GATEWAY) {
-                            its_payload = event.attributes.find(attr => attr.key === "payload").value;
-                            its_payload_hash = event.attributes.find(attr => attr.key === "payload_hash").value;
-                            const payload_hash = (
-                                await axios.post(
-                                    process.env.PAYLOAD_CACHE,
-                                    its_payload,
-                                    {
-                                        headers: {
-                                            'Authorization': `Bearer ${process.env.PAYLOAD_CACHE_AUTH_TOKEN}`,
-                                            'Content-Type': 'text/plain'
-                                        }
+                // Convert the payload on Axelarnet Gateway
+                let original_payload = null;
+                if (source_chain == 'xrpl') {
+                    for (let log of tx.logs) {
+                        let contract_called = log.events.find(event => (event.type === "wasm-contract_called" && event.attributes.find(attr => attr.key === "_contract_address").value === process.env.XRPL_GATEWAY_ADDRESS));
+                        original_payload = contract_called.attributes.find(attr => attr.key === "payload").value;
+                    }
+                } else {
+                    try {
+                        original_payload = (
+                            (await axios.get(
+                                `${process.env.PAYLOAD_CACHE}?hash=${original_payload_hash}`,
+                                {
+                                    headers: {
+                                        'Authorization': `Bearer ${process.env.PAYLOAD_CACHE_AUTH_TOKEN}`,
+                                        'Content-Type': 'text/plain'
                                     }
-                                )
-                            ).data.hash;
-                            if (payload_hash !== its_payload_hash) {
-                                logError(`Payload hash mismatch; Received hash: ${payload_hash}, expected hash: ${its_payload_hash}`);
+                                }
+                            ))
+                        ).data;
+                    } catch (error) {
+                        logError(`Failed to process event: ${JSON.stringify(event)}\nError fetching payload from cache.`);
+                        continue;
+                    }
+                }
+                let execute_msg = {
+                    execute: {
+                        cc_id: {
+                            source_chain,
+                            message_id
+                        },
+                        payload: original_payload
+                    }
+                };
+
+                const command = 'axelard';
+                const args = [
+                    'tx', 'wasm', 'execute', process.env.AXELARNET_GATEWAY, JSON.stringify(execute_msg),
+                    '--from', AXELAR_SENDER,
+                    '--chain-id', process.env.AXELAR_CHAIN_ID,
+                    '--gas', 'auto',
+                    '--gas-adjustment', '1.4',
+                    '--gas-prices', process.env.AXELAR_GAS_PRICES,
+                    '--output', 'json',
+                    '--keyring-backend', 'test',
+                    '--node', process.env.AXELAR_RPC_URL,
+                    '-y'
+                ];
+                let execute_res = JSON.parse((await spawnAsync(command, args)).stdout);
+                let payload = null;
+                for (let log of execute_res.logs) {
+                    for (let event of log.events) {
+                        if (event.type === "wasm-contract_called") {
+                            if (event.attributes.find(attr => attr.key === "_contract_address").value === process.env.AXELARNET_GATEWAY) {
+                                its_payload = event.attributes.find(attr => attr.key === "payload").value;
+                                its_payload_hash = event.attributes.find(attr => attr.key === "payload_hash").value;
+                                const payload_hash = (
+                                    await axios.post(
+                                        process.env.PAYLOAD_CACHE,
+                                        its_payload,
+                                        {
+                                            headers: {
+                                                'Authorization': `Bearer ${process.env.PAYLOAD_CACHE_AUTH_TOKEN}`,
+                                                'Content-Type': 'text/plain'
+                                            }
+                                        }
+                                    )
+                                ).data.hash;
+                                if (payload_hash !== its_payload_hash) {
+                                    logError(`Payload hash mismatch; Received hash: ${payload_hash}, expected hash: ${its_payload_hash}`);
+                                }
+                                break;
                             }
-                            break;
                         }
                     }
                 }
+                latest_height = Math.max(latest_height, height);
             }
-            latest_height = Math.max(latest_height, height);
+        } catch (e) {
+            logError('Main loop failed:');
+            logError(e);
         }
         await delay(2000);
     }
