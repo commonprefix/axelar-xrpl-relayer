@@ -162,33 +162,38 @@ async function get_current_axelar_height() {
                     '--node', process.env.AXELAR_RPC_URL,
                     '-y'
                 ];
-                let execute_res = JSON.parse((await spawnAsync(command, args)).stdout);
-                let payload = null;
-                for (let log of execute_res.logs) {
-                    for (let event of log.events) {
-                        if (event.type === "wasm-contract_called") {
-                            if (event.attributes.find(attr => attr.key === "_contract_address").value === process.env.AXELARNET_GATEWAY) {
-                                its_payload = event.attributes.find(attr => attr.key === "payload").value;
-                                its_payload_hash = event.attributes.find(attr => attr.key === "payload_hash").value;
-                                const payload_hash = (
-                                    await axios.post(
-                                        process.env.PAYLOAD_CACHE,
-                                        its_payload,
-                                        {
-                                            headers: {
-                                                'Authorization': `Bearer ${process.env.PAYLOAD_CACHE_AUTH_TOKEN}`,
-                                                'Content-Type': 'text/plain'
+                try {
+                    let execute_res = JSON.parse((await spawnAsync(command, args)).stdout);
+                    let payload = null;
+                    for (let log of execute_res.logs) {
+                        for (let event of log.events) {
+                            if (event.type === "wasm-contract_called") {
+                                if (event.attributes.find(attr => attr.key === "_contract_address").value === process.env.AXELARNET_GATEWAY) {
+                                    its_payload = event.attributes.find(attr => attr.key === "payload").value;
+                                    its_payload_hash = event.attributes.find(attr => attr.key === "payload_hash").value;
+                                    const payload_hash = (
+                                        await axios.post(
+                                            process.env.PAYLOAD_CACHE,
+                                            its_payload,
+                                            {
+                                                headers: {
+                                                    'Authorization': `Bearer ${process.env.PAYLOAD_CACHE_AUTH_TOKEN}`,
+                                                    'Content-Type': 'text/plain'
+                                                }
                                             }
-                                        }
-                                    )
-                                ).data.hash;
-                                if (payload_hash !== its_payload_hash) {
-                                    logError(`Payload hash mismatch; Received hash: ${payload_hash}, expected hash: ${its_payload_hash}`);
+                                        )
+                                    ).data.hash;
+                                    if (payload_hash !== its_payload_hash) {
+                                        logError(`Payload hash mismatch; Received hash: ${payload_hash}, expected hash: ${its_payload_hash}`);
+                                    }
+                                    break;
                                 }
-                                break;
                             }
                         }
                     }
+                } catch (err) {
+                    logError(`Failed to process event: ${JSON.stringify(event)}\nError executing payload on Axelarnet Gateway.\n${err}`);
+                    continue;
                 }
                 latest_height = Math.max(latest_height, height);
             }
