@@ -78,6 +78,7 @@ impl Distributor {
         mut shutdown_rx: watch::Receiver<bool>,
     ) -> () {
         loop {
+            info!("Distributor is alive.");
             tokio::select! {
                 _ = self.work(gmp_api.clone(), queue.clone()) => {}
                 _ = shutdown_rx.changed() => {

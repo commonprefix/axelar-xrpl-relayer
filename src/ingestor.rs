@@ -78,6 +78,7 @@ impl Ingestor {
         let mut tasks_consumer = tasks_queue.consumer().await.unwrap();
 
         loop {
+            info!("Ingestor is alive.");
             tokio::select! {
                 _ = self.work(&mut events_consumer) => {}
                 _ = self.work(&mut tasks_consumer) => {}

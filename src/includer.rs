@@ -94,6 +94,7 @@ where
     ) -> () {
         let mut consumer = queue.consumer().await.unwrap();
         loop {
+            info!("Includer is alive.");
             tokio::select! {
                 _ = self.work(&mut consumer) => {}
                 _ = shutdown_rx.changed() => {

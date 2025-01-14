@@ -84,6 +84,7 @@ impl Subscriber {
         mut shutdown_rx: watch::Receiver<bool>,
     ) -> () {
         loop {
+            info!("Subscriber is alive.");
             tokio::select! {
             _ = self.work(account.clone(), queue.clone()) => {}
                 _ = shutdown_rx.changed() => {
