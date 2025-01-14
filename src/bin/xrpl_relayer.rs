@@ -38,7 +38,7 @@ async fn main() {
 
     let account = AccountId::from_address(&config.xrpl_multisig).unwrap();
 
-    let mut subscriber = Subscriber::new_xrpl(&config.xrpl_rpc).await;
+    let mut subscriber = Subscriber::new_xrpl(&config.xrpl_rpc, redis_pool.clone()).await;
     let events_queue_clone = events_queue_arc.clone();
     let subscriber_handle = tokio::spawn({
         let shutdown_rx = shutdown_rx.clone();
@@ -71,7 +71,7 @@ async fn main() {
 
     let gmp_api_ref = gmp_api.clone();
     let tasks_queue_clone = tasks_queue_arc.clone();
-    let mut distributor = Distributor::new(redis_pool);
+    let mut distributor = Distributor::new(redis_pool.clone());
     let distributor_handle = tokio::spawn({
         let shutdown_rx = shutdown_rx.clone();
         async move {

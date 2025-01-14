@@ -1,4 +1,5 @@
 use futures::Stream;
+use r2d2::Pool;
 use serde::{Deserialize, Serialize};
 use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::sync::{watch, RwLockReadGuard};
@@ -45,8 +46,8 @@ pub enum ChainTransaction {
 }
 
 impl Subscriber {
-    pub async fn new_xrpl(url: &str) -> Subscriber {
-        let client = XrplSubscriber::new(url).await;
+    pub async fn new_xrpl(url: &str, redis_pool: Pool<redis::Client>) -> Subscriber {
+        let client = XrplSubscriber::new(url, redis_pool).await;
         Subscriber::Xrpl(client)
     }
 
