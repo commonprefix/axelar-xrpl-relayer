@@ -165,7 +165,17 @@ async function handleRoutingOutgoing(event, height) {
     let payload;
     try {
         const url = `${process.env.PAYLOAD_CACHE}?hash=${payloadHash}`;
-        const response = await axios.get(url);
+        const response = (
+            (await axios.get(
+                url,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${process.env.PAYLOAD_CACHE_AUTH_TOKEN}`,
+                        'Content-Type': 'text/plain'
+                    }
+                }
+            ))
+        );
         payload = response.data;
     } catch (error) {
         logError(`Could not find payload for ${sourceChain}_${messageId} \n ${error.message}`);
