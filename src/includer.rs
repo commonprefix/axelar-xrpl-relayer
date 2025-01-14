@@ -5,7 +5,7 @@ use lapin::{
 };
 use std::{future::Future, sync::Arc};
 use tokio::sync::{watch, RwLockReadGuard};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     error::{BroadcasterError, IncluderError, RefundManagerError},
@@ -45,53 +45,48 @@ where
     R: RefundManager,
 {
     async fn work(&self, consumer: &mut Consumer) -> () {
-        let next_item = consumer.next().await;
+        match consumer.next().await {
+            Some(Ok(delivery)) => {
+                let data = delivery.data.clone();
+                let task = serde_json::from_slice::<QueueItem>(&data).unwrap();
 
-        if let Some(delivery) = next_item {
-            match delivery {
-                Ok(delivery) => {
-                    let data = delivery.data.clone();
-                    let task = serde_json::from_slice::<QueueItem>(&data).unwrap();
-
-                    let consume_res = self.consume(task).await;
-                    match consume_res {
-                        Ok(_) => {
-                            info!("Successfully consumed delivery");
-                            delivery.ack(BasicAckOptions::default()).await.expect("ack");
-                        }
-                        Err(e) => {
-                            match e {
-                                IncluderError::IrrelevantTask => {
-                                    debug!("Skipping irrelevant task");
-                                }
-                                _ => {
-                                    error!("Failed to consume delivery: {:?}", e);
-                                }
+                let consume_res = self.consume(task).await;
+                match consume_res {
+                    Ok(_) => {
+                        info!("Successfully consumed delivery");
+                        delivery.ack(BasicAckOptions::default()).await.expect("ack");
+                    }
+                    Err(e) => {
+                        match e {
+                            IncluderError::IrrelevantTask => {
+                                debug!("Skipping irrelevant task");
                             }
-
-                            delivery
-                                .nack(BasicNackOptions {
-                                    multiple: false,
-                                    requeue: true,
-                                })
-                                .await
-                                .expect("nack");
+                            _ => {
+                                error!("Failed to consume delivery: {:?}", e);
+                            }
                         }
+
+                        delivery
+                            .nack(BasicNackOptions {
+                                multiple: false,
+                                requeue: true,
+                            })
+                            .await
+                            .expect("nack");
                     }
                 }
-                Err(e) => {
-                    error!("Failed to receive delivery: {:?}", e);
-                }
+            }
+            Some(Err(e)) => {
+                error!("Failed to receive delivery: {:?}", e);
+            }
+            None => {
+                warn!("No more messages from consumer.");
             }
         }
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await
     }
 
-    pub async fn run(
-        &self,
-        queue: RwLockReadGuard<'_, Queue>,
-        mut shutdown_rx: watch::Receiver<bool>,
-    ) -> () {
+    pub async fn run(&self, queue: Arc<Queue>, mut shutdown_rx: watch::Receiver<bool>) -> () {
         let mut consumer = queue.consumer().await.unwrap();
         loop {
             info!("Includer is alive.");

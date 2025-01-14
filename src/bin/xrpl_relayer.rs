@@ -43,9 +43,8 @@ async fn main() {
     let subscriber_handle = tokio::spawn({
         let shutdown_rx = shutdown_rx.clone();
         async move {
-            let events_queue = events_queue_clone.read().await;
             subscriber
-                .run(account.to_address(), events_queue, shutdown_rx)
+                .run(account.to_address(), events_queue_clone, shutdown_rx)
                 .await;
         }
     });
@@ -54,8 +53,7 @@ async fn main() {
     let includer_handle = tokio::spawn({
         let shutdown_rx = shutdown_rx.clone();
         async move {
-            let tasks_queue = tasks_queue_clone.read().await;
-            xrpl_includer.run(tasks_queue, shutdown_rx).await;
+            xrpl_includer.run(tasks_queue_clone, shutdown_rx).await;
         }
     });
 
@@ -65,10 +63,9 @@ async fn main() {
     let ingestor_handle = tokio::spawn({
         let shutdown_rx = shutdown_rx.clone();
         async move {
-            let events_queue = events_queue_clone.read().await;
-            let tasks_queue = tasks_queue_clone.read().await;
-
-            ingestor.run(events_queue, tasks_queue, shutdown_rx).await;
+            ingestor
+                .run(events_queue_clone, tasks_queue_clone, shutdown_rx)
+                .await;
         }
     });
 
@@ -78,8 +75,9 @@ async fn main() {
     let distributor_handle = tokio::spawn({
         let shutdown_rx = shutdown_rx.clone();
         async move {
-            let tasks_queue = tasks_queue_clone.read().await;
-            distributor.run(gmp_api_ref, tasks_queue, shutdown_rx).await;
+            distributor
+                .run(gmp_api_ref, tasks_queue_clone, shutdown_rx)
+                .await;
         }
     });
 

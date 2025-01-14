@@ -7,8 +7,7 @@ use lapin::{
     BasicProperties, Connection, ConnectionProperties, Consumer,
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
-use tracing::info;
+use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::{gmp_api::gmp_types::Task, subscriber::ChainTransaction};
@@ -26,12 +25,12 @@ pub enum QueueItem {
 }
 
 impl Queue {
-    pub async fn new(url: &str, name: &str) -> Arc<RwLock<Self>> {
+    pub async fn new(url: &str, name: &str) -> Arc<Self> {
         let (connection, channel, queue) = Self::connect(url, name).await;
 
-        let queue_arc = Arc::new(RwLock::new(Self { channel, queue }));
+        let queue_arc = Arc::new(Self { channel, queue });
 
-        Self::set_on_error_callback(&queue_arc, connection, url.to_owned(), name.to_owned());
+        Self::set_on_error_callback(connection, url.to_owned(), name.to_owned());
 
         queue_arc
     }
@@ -55,38 +54,20 @@ impl Queue {
         (connection, channel, q)
     }
 
-    fn set_on_error_callback(
-        queue_arc: &Arc<RwLock<Self>>,
-        connection: Connection,
-        url: String,
-        name: String,
-    ) {
-        let queue_arc_clone = queue_arc.clone();
-
+    fn set_on_error_callback(connection: Connection, url: String, name: String) {
         connection.on_error(move |_| {
-            let queue = Arc::clone(&queue_arc_clone);
-            let url = url.clone();
-            let name = name.clone();
-
-            async_std::task::spawn(async move {
-                let mut locked = queue.write().await;
-                locked.refresh_connection(&queue, &url, &name).await;
-            });
+            error!("Connection to RabbitMQ failed");
+            std::process::exit(1);
         });
     }
 
-    pub async fn refresh_connection(
-        &mut self,
-        queue_arc: &Arc<RwLock<Self>>,
-        url: &str,
-        name: &str,
-    ) {
+    pub async fn refresh_connection(&mut self, url: &str, name: &str) {
         info!("Reconnecting to RabbitMQ at {}", url);
         let (connection, channel, queue) = Self::connect(url, name).await;
         self.channel = channel;
         self.queue = queue;
 
-        Self::set_on_error_callback(queue_arc, connection, url.to_owned(), name.to_owned());
+        Self::set_on_error_callback(connection, url.to_owned(), name.to_owned());
 
         info!("Reconnected to RabbitMQ at {}", url);
     }

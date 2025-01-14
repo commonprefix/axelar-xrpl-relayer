@@ -70,8 +70,8 @@ impl Ingestor {
 
     pub async fn run(
         &self,
-        events_queue: RwLockReadGuard<'_, Queue>,
-        tasks_queue: RwLockReadGuard<'_, Queue>,
+        events_queue: Arc<Queue>,
+        tasks_queue: Arc<Queue>,
         mut shutdown_rx: watch::Receiver<bool>,
     ) -> () {
         let mut events_consumer = events_queue.consumer().await.unwrap();

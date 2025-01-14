@@ -1,6 +1,6 @@
 use futures::Stream;
 use serde::{Deserialize, Serialize};
-use std::{future::Future, pin::Pin};
+use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::sync::{watch, RwLockReadGuard};
 use tracing::{debug, error, info, warn};
 use xrpl_api::Transaction;
@@ -50,7 +50,7 @@ impl Subscriber {
         Subscriber::Xrpl(client)
     }
 
-    async fn work(&mut self, account: String, queue: Queue) -> () {
+    async fn work(&mut self, account: String, queue: Arc<Queue>) -> () {
         match self {
             Subscriber::Xrpl(sub) => {
                 let res = sub.poll(AccountId::from_address(&account).unwrap()).await;
@@ -80,7 +80,7 @@ impl Subscriber {
     pub async fn run(
         &mut self,
         account: String,
-        queue: RwLockReadGuard<'_, Queue>,
+        queue: Arc<Queue>,
         mut shutdown_rx: watch::Receiver<bool>,
     ) -> () {
         loop {
