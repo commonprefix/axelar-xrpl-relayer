@@ -7,18 +7,26 @@ use lapin::{
     BasicProperties, Connection, ConnectionProperties, Consumer,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{error, info};
+use tokio::{
+    sync::{
+        mpsc::{self, Receiver, Sender},
+        Mutex, RwLock,
+    },
+    time::{self, Duration},
+};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::{gmp_api::gmp_types::Task, subscriber::ChainTransaction};
 
 #[derive(Clone)]
 pub struct Queue {
-    queue: lapin::Queue,
-    channel: lapin::Channel,
+    channel: Arc<Mutex<lapin::Channel>>,
+    queue: Arc<RwLock<lapin::Queue>>,
+    buffer_sender: Sender<QueueItem>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum QueueItem {
     Task(Task),
     Transaction(ChainTransaction),
@@ -26,73 +34,152 @@ pub enum QueueItem {
 
 impl Queue {
     pub async fn new(url: &str, name: &str) -> Arc<Self> {
-        let (connection, channel, queue) = Self::connect(url, name).await;
+        let (_, channel, queue) = Self::connect(url, name).await;
 
-        let queue_arc = Arc::new(Self { channel, queue });
+        let (buffer_sender, buffer_receiver) = mpsc::channel::<QueueItem>(1000);
 
-        Self::set_on_error_callback(connection, url.to_owned(), name.to_owned());
+        let queue_arc = Arc::new(Self {
+            channel: Arc::new(Mutex::new(channel)),
+            queue: Arc::new(RwLock::new(queue)),
+            buffer_sender,
+        });
+
+        let queue_clone = queue_arc.clone();
+        let url = url.to_owned();
+        let name = name.to_owned();
+        tokio::spawn(async move {
+            queue_clone
+                .run_buffer_processor(buffer_receiver, url, name)
+                .await;
+        });
 
         queue_arc
     }
 
-    pub async fn connect(url: &str, name: &str) -> (Connection, lapin::Channel, lapin::Queue) {
-        let connection = Connection::connect(url, ConnectionProperties::default())
-            .await
-            .unwrap();
-        info!("Connected to RabbitMQ at {}", url);
-
-        let channel = connection.create_channel().await.unwrap();
-        info!("Created channel");
-
-        // todo: test durable
-        let q = channel
-            .queue_declare(name, QueueDeclareOptions::default(), FieldTable::default())
-            .await
-            .unwrap();
-        info!("Declared RMQ queue: {:?}", q);
-
-        (connection, channel, q)
+    async fn run_buffer_processor(
+        &self,
+        mut buffer_receiver: Receiver<QueueItem>,
+        url: String,
+        name: String,
+    ) {
+        let mut interval = time::interval(Duration::from_secs(5));
+        loop {
+            println!("Buffer size is: {}", buffer_receiver.len());
+            tokio::select! {
+                Some(item) = buffer_receiver.recv() => {
+                    if let Err(e) = self.publish_item(&item).await {
+                        error!("Failed to publish item: {:?}. Re-buffering.", e);
+                        if let Err(e) = self.buffer_sender.send(item).await {
+                            error!("Failed to re-buffer item: {:?}", e);
+                        }
+                    }
+                },
+                _ = interval.tick() => {
+                    if !self.is_connected().await {
+                        warn!("Connection with RabbitMQ failed. Reconnecting.");
+                        self.refresh_connection(&url, &name).await;
+                    }
+                },
+                else => {
+                    break;
+                }
+            }
+        }
     }
 
-    fn set_on_error_callback(connection: Connection, url: String, name: String) {
-        connection.on_error(move |_| {
-            error!("Connection to RabbitMQ failed");
-            std::process::exit(1);
-        });
+    async fn is_connected(&self) -> bool {
+        let channel_lock = self.channel.lock().await;
+        channel_lock.status().connected()
     }
 
-    pub async fn refresh_connection(&mut self, url: &str, name: &str) {
+    async fn connect(url: &str, name: &str) -> (Connection, lapin::Channel, lapin::Queue) {
+        loop {
+            match Connection::connect(url, ConnectionProperties::default()).await {
+                Ok(connection) => {
+                    info!("Connected to RabbitMQ at {}", url);
+                    match connection.create_channel().await {
+                        Ok(channel) => {
+                            info!("Created channel");
+                            match channel
+                                .queue_declare(
+                                    name,
+                                    QueueDeclareOptions::default(),
+                                    FieldTable::default(),
+                                )
+                                .await
+                            {
+                                Ok(queue) => {
+                                    info!("Declared RMQ queue: {:?}", queue);
+                                    return (connection, channel, queue);
+                                }
+                                Err(e) => {
+                                    error!("Failed to declare queue: {:?}", e);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error!("Failed to create channel: {:?}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!(
+                        "Failed to connect to RabbitMQ: {:?}. Retrying in 5 seconds...",
+                        e
+                    );
+                }
+            }
+            time::sleep(Duration::from_secs(5)).await;
+        }
+    }
+
+    pub async fn refresh_connection(&self, url: &str, name: &str) {
         info!("Reconnecting to RabbitMQ at {}", url);
-        let (connection, channel, queue) = Self::connect(url, name).await;
-        self.channel = channel;
-        self.queue = queue;
+        let (_, new_channel, new_queue) = Self::connect(url, name).await;
 
-        Self::set_on_error_callback(connection, url.to_owned(), name.to_owned());
+        let mut channel_lock = self.channel.lock().await;
+        *channel_lock = new_channel;
+
+        let mut queue_lock = self.queue.write().await;
+        *queue_lock = new_queue;
 
         info!("Reconnected to RabbitMQ at {}", url);
     }
 
-    pub async fn publish(&self, msg: &[u8]) {
-        let _ = self
-            .channel
+    pub async fn publish(&self, item: QueueItem) {
+        if let Err(e) = self.buffer_sender.send(item).await {
+            error!("Buffer is full, failed to enqueue message: {:?}", e);
+        }
+    }
+
+    async fn publish_item(&self, item: &QueueItem) -> Result<(), anyhow::Error> {
+        let msg = serde_json::to_vec(item)?;
+
+        let channel_lock = self.channel.lock().await;
+        let queue_lock = self.queue.read().await;
+
+        channel_lock
             .basic_publish(
                 "",
-                &self.queue.name().as_str(),
+                queue_lock.name().as_str(),
                 BasicPublishOptions::default(),
-                msg,
+                &msg,
                 BasicProperties::default(),
             )
-            .await
-            .unwrap();
+            .await?
+            .await?;
+        Ok(())
     }
 
     pub async fn consumer(&self) -> Result<Consumer, anyhow::Error> {
         let consumer_tag = format!("consumer_{}", Uuid::new_v4());
 
-        Ok(self
-            .channel
+        let channel_lock = self.channel.lock().await;
+        let queue_lock = self.queue.read().await;
+
+        Ok(channel_lock
             .basic_consume(
-                self.queue.name().as_str(),
+                queue_lock.name().as_str(),
                 &consumer_tag,
                 BasicConsumeOptions::default(),
                 FieldTable::default(),
