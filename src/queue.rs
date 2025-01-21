@@ -64,7 +64,6 @@ impl Queue {
     ) {
         let mut interval = time::interval(Duration::from_secs(5));
         loop {
-            println!("Buffer size is: {}", buffer_receiver.len());
             tokio::select! {
                 Some(item) = buffer_receiver.recv() => {
                     if let Err(e) = self.publish_item(&item).await {
