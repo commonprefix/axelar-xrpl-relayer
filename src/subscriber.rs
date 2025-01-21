@@ -59,13 +59,10 @@ impl Subscriber {
                     Ok(txs) => {
                         for tx_with_meta in txs {
                             let chain_transaction = ChainTransaction::Xrpl(tx_with_meta.tx.clone());
-                            let tx_string = serde_json::to_string(&QueueItem::Transaction(
-                                chain_transaction.clone(),
-                            ))
-                            .unwrap();
+                            let tx = &QueueItem::Transaction(chain_transaction.clone());
                             info!("Publishing tx: {:?}", chain_transaction);
-                            queue.publish(tx_string.as_bytes()).await;
-                            debug!("Published tx: {:?}", tx_string);
+                            queue.publish(tx.clone()).await;
+                            debug!("Published tx: {:?}", tx);
                         }
                     }
                     Err(e) => {

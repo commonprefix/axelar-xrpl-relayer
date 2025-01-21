@@ -51,10 +51,9 @@ impl Distributor {
         match tasks_res {
             Ok(tasks) => {
                 for task in tasks {
-                    let task_string =
-                        serde_json::to_string(&QueueItem::Task(task.clone())).unwrap();
+                    let task_item = &QueueItem::Task(task.clone());
                     info!("Publishing task: {:?}", task);
-                    queue.publish(task_string.as_bytes()).await;
+                    queue.publish(task_item.clone()).await;
                     let task_id = task.id();
                     self.last_task_id = std::cmp::max(self.last_task_id, task_id);
 
