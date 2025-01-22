@@ -44,7 +44,7 @@ where
     B: Broadcaster,
     R: RefundManager,
 {
-    async fn work(&self, consumer: &mut Consumer) -> () {
+    async fn work(&self, consumer: &mut Consumer, queue: Arc<Queue>) -> () {
         match consumer.next().await {
             Some(Ok(delivery)) => {
                 let data = delivery.data.clone();
@@ -66,13 +66,9 @@ where
                             }
                         }
 
-                        delivery
-                            .nack(BasicNackOptions {
-                                multiple: false,
-                                requeue: true,
-                            })
-                            .await
-                            .expect("nack");
+                        if let Err(nack_err) = queue.republish(delivery).await {
+                            error!("Failed to republish message: {:?}", nack_err);
+                        }
                     }
                 }
             }
@@ -91,7 +87,7 @@ where
         loop {
             info!("Includer is alive.");
             tokio::select! {
-                _ = self.work(&mut consumer) => {}
+                _ = self.work(&mut consumer, queue.clone()) => {}
                 _ = shutdown_rx.changed() => {
                     info!("Shutting down includer");
                     break;

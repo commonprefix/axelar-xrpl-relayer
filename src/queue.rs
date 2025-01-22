@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use lapin::{
-    options::{BasicConsumeOptions, BasicPublishOptions, QueueDeclareOptions},
+    message::Delivery,
+    options::{BasicConsumeOptions, BasicNackOptions, BasicPublishOptions, QueueDeclareOptions},
     types::FieldTable,
     BasicProperties, Connection, ConnectionProperties, Consumer,
 };
@@ -54,6 +55,27 @@ impl Queue {
         });
 
         queue_arc
+    }
+
+    pub async fn republish(&self, delivery: Delivery) -> Result<(), anyhow::Error> {
+        let item: QueueItem = serde_json::from_slice(&delivery.data)?;
+        let mut nack_options = BasicNackOptions {
+            multiple: false,
+            requeue: false,
+        };
+
+        if let Err(e) = self.publish_item(&item).await {
+            warn!("Failed to republish item: {:?}", e);
+            nack_options.requeue = true;
+        } else {
+            nack_options.requeue = false;
+        }
+
+        if let Err(nack_err) = delivery.nack(nack_options).await {
+            return Err(anyhow!("Failed to nack message: {:?}", nack_err)); // This should really not happen
+        }
+
+        Ok(())
     }
 
     async fn run_buffer_processor(

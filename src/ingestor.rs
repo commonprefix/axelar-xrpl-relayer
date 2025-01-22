@@ -31,7 +31,7 @@ impl Ingestor {
         }
     }
 
-    async fn work(&self, consumer: &mut Consumer) -> () {
+    async fn work(&self, consumer: &mut Consumer, queue: Arc<Queue>) -> () {
         match consumer.next().await {
             Some(Ok(delivery)) => {
                 if let Err(e) = self.process_delivery(&delivery.data).await {
@@ -44,14 +44,8 @@ impl Ingestor {
                         }
                     }
 
-                    if let Err(nack_err) = delivery
-                        .nack(BasicNackOptions {
-                            multiple: false,
-                            requeue: true,
-                        })
-                        .await
-                    {
-                        error!("Failed to nack message: {:?}", nack_err);
+                    if let Err(nack_err) = queue.republish(delivery).await {
+                        error!("Failed to republish message: {:?}", nack_err);
                     }
                 } else if let Err(ack_err) = delivery.ack(BasicAckOptions::default()).await {
                     error!("Failed to ack message: {:?}", ack_err);
@@ -80,8 +74,8 @@ impl Ingestor {
         loop {
             info!("Ingestor is alive.");
             tokio::select! {
-                _ = self.work(&mut events_consumer) => {}
-                _ = self.work(&mut tasks_consumer) => {}
+                _ = self.work(&mut events_consumer, events_queue.clone()) => {}
+                _ = self.work(&mut tasks_consumer, tasks_queue.clone()) => {}
                 _ = shutdown_rx.changed() => {
                     info!("Shutting down ingestor");
                     break;
