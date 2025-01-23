@@ -136,7 +136,12 @@ app.post('/contracts/:contract/broadcasts', async (req, res) => {
     } catch (error) {
         logError('Broadcast error:');
         logError(error)
-        return res.status(500).json({ error: error.message });
+        if (error.stderr) {
+            errorMsg = error.stderr;
+        } else {
+            errorMsg = error.message;
+        }
+        return res.status(500).json({ error: errorMsg });
     }
 });
 
