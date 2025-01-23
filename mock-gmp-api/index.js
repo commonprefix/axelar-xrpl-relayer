@@ -134,13 +134,17 @@ app.post('/contracts/:contract/broadcasts', async (req, res) => {
             return res.status(404).json({ error: 'Unknown broadcast type' });
         }
     } catch (error) {
-        logError('Broadcast error:');
-        logError(error)
         if (error.stderr) {
             errorMsg = error.stderr;
         } else {
             errorMsg = error.message;
         }
+
+        if (!errorMsg.contains("ticket count threshold has not been reached")) {
+            logError('Broadcast error:');
+            logError(error)
+        }
+
         return res.status(500).json({ error: errorMsg });
     }
 });
