@@ -1,7 +1,7 @@
 use sentry_tracing::{layer as sentry_layer, EventFilter};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use tracing::{info, level_filters::LevelFilter, warn, Level};
+use tracing::{level_filters::LevelFilter, warn, Level};
 use tracing_subscriber::{fmt, prelude::*, Registry};
 use xrpl_api::Memo;
 
@@ -26,39 +26,32 @@ pub fn parse_task(task_json: &Value) -> Result<Task, GmpApiError> {
     match task_headers.r#type.as_str() {
         "CONSTRUCT_PROOF" => {
             let task: ConstructProofTask = parse_as(task_json)?;
-            info!("Parsed ConstructProof task: {:?}", task);
             Ok(Task::ConstructProof(task))
         }
         "GATEWAY_TX" => {
             let task: GatewayTxTask = parse_as(task_json)?;
-            info!("Parsed GatewayTx task: {:?}", task);
             Ok(Task::GatewayTx(task))
         }
         "VERIFY" => {
             let task: VerifyTask = parse_as(task_json)?;
-            info!("Parsed VerifyTask task: {:?}", task);
             Ok(Task::Verify(task))
         }
         "EXECUTE" => {
             let task: ExecuteTask = parse_as(task_json)?;
-            info!("Parsed Execute task: {:?}", task);
             Ok(Task::Execute(task))
         }
         "REFUND" => {
             let task: RefundTask = parse_as(task_json)?;
-            info!("Parsed Refund task: {:?}", task);
             Ok(Task::Refund(task))
         }
         "REACT_TO_WASM_EVENT" => {
             let task: ReactToWasmEventTask = parse_as(task_json)?;
-            info!("Parsed ReactToWasmEvent task: {:?}", task);
             Ok(Task::ReactToWasmEvent(task))
         }
         _ => {
-            warn!("Unknown task type: {:?}", task_headers.r#type);
-            Err(GmpApiError::InvalidResponse(
-                "Unknown task type".to_string(),
-            ))
+            let error_message = format!("Failed to parse task: {:?}", task_json);
+            warn!(error_message);
+            Err(GmpApiError::InvalidResponse(error_message))
         }
     }
 }
