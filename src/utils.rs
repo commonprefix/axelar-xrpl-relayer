@@ -1,3 +1,4 @@
+use sentry::ClientInitGuard;
 use sentry_tracing::{layer as sentry_layer, EventFilter};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -78,7 +79,7 @@ pub fn extract_from_xrpl_memo(
     }
 }
 
-pub fn setup_logging(config: &Config) {
+pub fn setup_logging(config: &Config) -> ClientInitGuard {
     let _guard = sentry::init((
         config.xrpl_relayer_sentry_dsn.to_string(),
         sentry::ClientOptions {
@@ -104,4 +105,6 @@ pub fn setup_logging(config: &Config) {
 
     tracing::subscriber::set_global_default(subscriber)
         .expect("Failed to set global tracing subscriber");
+
+    _guard
 }

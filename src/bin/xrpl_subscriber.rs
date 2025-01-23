@@ -1,10 +1,7 @@
 use dotenv::dotenv;
 
 use axelar_xrpl_relayer::{
-    config::Config,
-    queue::Queue,
-    subscriber::Subscriber,
-    utils::setup_logging,
+    config::Config, queue::Queue, subscriber::Subscriber, utils::setup_logging,
 };
 use xrpl_types::AccountId;
 
@@ -13,7 +10,7 @@ async fn main() {
     dotenv().ok();
     let config = Config::from_env().map_err(|e| anyhow::anyhow!(e)).unwrap();
 
-    setup_logging(&config);
+    let _guard = setup_logging(&config);
 
     let events_queue = Queue::new(&config.queue_address, "events").await;
     let redis_client = redis::Client::open(config.redis_server.clone()).unwrap();
