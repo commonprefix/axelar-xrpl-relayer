@@ -8,7 +8,7 @@ async fn main() {
     dotenv().ok();
     let config = Config::from_env().map_err(|e| anyhow::anyhow!(e)).unwrap();
 
-    setup_logging(&config);
+    let _guard = setup_logging(&config);
 
     let gmp_api = Arc::new(gmp_api::GmpApi::new(&config.gmp_api_url, "xrpl").unwrap());
     let ticket_creator = XrplTicketCreator::new(gmp_api.clone(), config.clone());
