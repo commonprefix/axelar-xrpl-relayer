@@ -1,8 +1,7 @@
-use std::{default, sync::Arc};
+use std::sync::Arc;
 
 use r2d2::{Pool, PooledConnection};
 use redis::Commands;
-use tokio::sync::{watch, RwLockReadGuard};
 use tracing::{debug, info, warn};
 
 use crate::{
@@ -70,21 +69,10 @@ impl Distributor {
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
     }
 
-    pub async fn run(
-        &mut self,
-        gmp_api: Arc<GmpApi>,
-        queue: Arc<Queue>,
-        mut shutdown_rx: watch::Receiver<bool>,
-    ) -> () {
+    pub async fn run(&mut self, gmp_api: Arc<GmpApi>, queue: Arc<Queue>) -> () {
         loop {
             info!("Distributor is alive.");
-            tokio::select! {
-                _ = self.work(gmp_api.clone(), queue.clone()) => {}
-                _ = shutdown_rx.changed() => {
-                    info!("Shutting down distributor");
-                    break;
-                }
-            }
+            self.work(gmp_api.clone(), queue.clone()).await;
         }
     }
 }

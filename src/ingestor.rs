@@ -1,11 +1,8 @@
 use core::str;
 use futures::StreamExt;
-use lapin::{
-    options::{BasicAckOptions, BasicNackOptions},
-    Consumer,
-};
+use lapin::{options::BasicAckOptions, Consumer};
 use std::sync::Arc;
-use tokio::sync::{watch, RwLockReadGuard};
+use tokio::join;
 use tracing::{debug, error, info, warn};
 
 use crate::{
@@ -62,25 +59,17 @@ impl Ingestor {
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await
     }
 
-    pub async fn run(
-        &self,
-        events_queue: Arc<Queue>,
-        tasks_queue: Arc<Queue>,
-        mut shutdown_rx: watch::Receiver<bool>,
-    ) -> () {
+    pub async fn run(&self, events_queue: Arc<Queue>, tasks_queue: Arc<Queue>) -> () {
         let mut events_consumer = events_queue.consumer().await.unwrap();
         let mut tasks_consumer = tasks_queue.consumer().await.unwrap();
 
         loop {
             info!("Ingestor is alive.");
-            tokio::select! {
-                _ = self.work(&mut events_consumer, events_queue.clone()) => {}
-                _ = self.work(&mut tasks_consumer, tasks_queue.clone()) => {}
-                _ = shutdown_rx.changed() => {
-                    info!("Shutting down ingestor");
-                    break;
-                }
-            }
+
+            join!(
+                self.work(&mut events_consumer, events_queue.clone()),
+                self.work(&mut tasks_consumer, tasks_queue.clone()),
+            );
         }
     }
 

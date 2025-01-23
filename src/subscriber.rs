@@ -2,8 +2,7 @@ use futures::Stream;
 use r2d2::Pool;
 use serde::{Deserialize, Serialize};
 use std::{future::Future, pin::Pin, sync::Arc};
-use tokio::sync::{watch, RwLockReadGuard};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 use xrpl_api::Transaction;
 use xrpl_types::AccountId;
 
@@ -75,21 +74,9 @@ impl Subscriber {
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await
     }
 
-    pub async fn run(
-        &mut self,
-        account: String,
-        queue: Arc<Queue>,
-        mut shutdown_rx: watch::Receiver<bool>,
-    ) -> () {
+    pub async fn run(&mut self, account: String, queue: Arc<Queue>) -> () {
         loop {
-            info!("Subscriber is alive.");
-            tokio::select! {
-            _ = self.work(account.clone(), queue.clone()) => {}
-                _ = shutdown_rx.changed() => {
-                    info!("Shutting down subscriber");
-                    break;
-                }
-            }
+            self.work(account.clone(), queue.clone()).await;
         }
     }
 }

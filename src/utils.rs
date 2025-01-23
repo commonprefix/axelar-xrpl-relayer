@@ -1,9 +1,12 @@
+use sentry_tracing::{layer as sentry_layer, EventFilter};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use tracing::{info, warn};
+use tracing::{info, level_filters::LevelFilter, warn, Level};
+use tracing_subscriber::{fmt, prelude::*, Registry};
 use xrpl_api::Memo;
 
 use crate::{
+    config::Config,
     error::GmpApiError,
     gmp_api::gmp_types::{
         CommonTaskFields, ConstructProofTask, ExecuteTask, GatewayTxTask, ReactToWasmEventTask,
@@ -80,4 +83,32 @@ pub fn extract_from_xrpl_memo(
     } else {
         Err(anyhow::anyhow!("No memo with type: {}", memo_type))
     }
+}
+
+pub fn setup_logging(config: &Config) {
+    let _guard = sentry::init((
+        config.xrpl_relayer_sentry_dsn.to_string(),
+        sentry::ClientOptions {
+            release: sentry::release_name!(),
+            traces_sample_rate: 1.0,
+            ..Default::default()
+        },
+    ));
+
+    let fmt_layer = fmt::layer()
+        .with_target(true)
+        .with_filter(LevelFilter::DEBUG);
+
+    let sentry_layer = sentry_layer().event_filter(|metadata| match *metadata.level() {
+        Level::ERROR => EventFilter::Event, // Send `error` events to Sentry
+        Level::WARN => EventFilter::Event,  // Send `warn` events to Sentry
+        _ => EventFilter::Ignore,           // Ignore other levels
+    });
+
+    let subscriber = Registry::default()
+        .with(fmt_layer) // Console logging
+        .with(sentry_layer); // Sentry logging
+
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("Failed to set global tracing subscriber");
 }

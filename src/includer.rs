@@ -1,10 +1,6 @@
 use futures::StreamExt;
-use lapin::{
-    options::{BasicAckOptions, BasicNackOptions},
-    Consumer,
-};
+use lapin::{options::BasicAckOptions, Consumer};
 use std::{future::Future, sync::Arc};
-use tokio::sync::{watch, RwLockReadGuard};
 use tracing::{debug, error, info, warn};
 
 use crate::{
@@ -82,17 +78,11 @@ where
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await
     }
 
-    pub async fn run(&self, queue: Arc<Queue>, mut shutdown_rx: watch::Receiver<bool>) -> () {
+    pub async fn run(&self, queue: Arc<Queue>) -> () {
         let mut consumer = queue.consumer().await.unwrap();
         loop {
             info!("Includer is alive.");
-            tokio::select! {
-                _ = self.work(&mut consumer, queue.clone()) => {}
-                _ = shutdown_rx.changed() => {
-                    info!("Shutting down includer");
-                    break;
-                }
-            }
+            self.work(&mut consumer, queue.clone()).await;
         }
     }
 

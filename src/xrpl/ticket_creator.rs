@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
-use tokio::sync::watch;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 use crate::{
     config::Config,
@@ -41,15 +40,10 @@ impl XrplTicketCreator {
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await
     }
 
-    pub async fn run(&self, mut shutdown_rx: watch::Receiver<bool>) -> () {
+    pub async fn run(&self) -> () {
         loop {
-            tokio::select! {
-                _ = self.work() => {}
-                _ = shutdown_rx.changed() => {
-                    info!("Shutting down XRPL Ticket Creator");
-                    break;
-                }
-            }
+            info!("XrplTicketCreator is alive.");
+            self.work().await;
         }
     }
 }
