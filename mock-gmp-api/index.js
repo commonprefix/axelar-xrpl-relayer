@@ -140,7 +140,7 @@ app.post('/contracts/:contract/broadcasts', async (req, res) => {
             errorMsg = error.message;
         }
 
-        if (!errorMsg.contains("ticket count threshold has not been reached")) {
+        if (!errorMsg.includes("ticket count threshold has not been reached")) {
             logError('Broadcast error:');
             logError(error)
         }
