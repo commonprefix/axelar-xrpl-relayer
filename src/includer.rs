@@ -87,10 +87,10 @@ where
     }
 
     pub async fn consume(&self, task: QueueItem) -> Result<(), IncluderError> {
-        info!("Consuming task: {:?}", task);
         match task {
             QueueItem::Task(task) => match task {
                 Task::GatewayTx(gateway_tx_task) => {
+                    info!("Consuming task: {:?}", gateway_tx_task);
                     let broadcast_result = self
                         .broadcaster
                         .broadcast(gateway_tx_task.task.execute_data)
@@ -120,6 +120,7 @@ where
                     Ok(())
                 }
                 Task::Refund(refund_task) => {
+                    info!("Consuming task: {:?}", refund_task);
                     let tx_blob = self
                         .refund_manager
                         .build_refund_tx(

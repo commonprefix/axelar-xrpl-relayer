@@ -76,7 +76,6 @@ impl Ingestor {
     async fn process_delivery(&self, data: &[u8]) -> Result<(), IngestorError> {
         let data_str = str::from_utf8(&data)
             .map_err(|e| IngestorError::ParseError(format!("Invalid UTF-8 data: {}", e)))?;
-        debug!("Received data string: {}", data_str);
 
         let item = serde_json::from_slice::<QueueItem>(&data)
             .map_err(|e| IngestorError::ParseError(format!("Invalid JSON: {}", e)))?;
@@ -85,7 +84,6 @@ impl Ingestor {
     }
 
     pub async fn consume(&self, item: QueueItem) -> Result<(), IngestorError> {
-        info!("Consuming item: {:?}", item);
         match item {
             QueueItem::Task(task) => self.consume_task(task).await,
             QueueItem::Transaction(chain_transaction) => {
@@ -98,6 +96,7 @@ impl Ingestor {
         &self,
         transaction: ChainTransaction,
     ) -> Result<(), IngestorError> {
+        info!("Consuming transaction: {:?}", transaction);
         let events = match transaction {
             ChainTransaction::Xrpl(tx) => self.xrpl_ingestor.handle_transaction(tx).await?,
         };
@@ -126,18 +125,26 @@ impl Ingestor {
 
     pub async fn consume_task(&self, task: Task) -> Result<(), IngestorError> {
         match task {
-            Task::Verify(verify_task) => self.xrpl_ingestor.handle_verify(verify_task).await,
+            Task::Verify(verify_task) => {
+                info!("Consuming task: {:?}", verify_task);
+                self.xrpl_ingestor.handle_verify(verify_task).await
+            }
             Task::ReactToWasmEvent(react_to_wasm_event_task) => {
+                info!("Consuming task: {:?}", react_to_wasm_event_task);
                 self.xrpl_ingestor
                     .handle_wasm_event(react_to_wasm_event_task)
                     .await
             }
             Task::ConstructProof(construct_proof_task) => {
+                info!("Consuming task: {:?}", construct_proof_task);
                 self.xrpl_ingestor
                     .handle_construct_proof(construct_proof_task)
                     .await
             }
-            Task::Refund(_) => todo!(),
+            Task::Refund(_) => {
+                error!("GasRefund task is not implemented");
+                todo!()
+            }
             _ => Err(IngestorError::IrrelevantTask),
         }
     }
