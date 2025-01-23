@@ -192,7 +192,8 @@ async function get_current_axelar_height() {
                         }
                     }
                 } catch (err) {
-                    logError(`Failed to process event: ${JSON.stringify(event)}\nError executing payload on Axelarnet Gateway.\n${err}`);
+                    logError(`Failed to process event: ${JSON.stringify(event)}\nError executing payload on Axelarnet Gateway.`);
+                    logError(err);
                     continue;
                 }
                 latest_height = Math.max(latest_height, height);
