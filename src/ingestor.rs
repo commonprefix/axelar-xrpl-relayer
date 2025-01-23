@@ -2,7 +2,7 @@ use core::str;
 use futures::StreamExt;
 use lapin::{options::BasicAckOptions, Consumer};
 use std::sync::Arc;
-use tokio::join;
+use tokio::select;
 use tracing::{debug, error, info, warn};
 
 use crate::{
@@ -29,48 +29,53 @@ impl Ingestor {
     }
 
     async fn work(&self, consumer: &mut Consumer, queue: Arc<Queue>) -> () {
-        match consumer.next().await {
-            Some(Ok(delivery)) => {
-                if let Err(e) = self.process_delivery(&delivery.data).await {
-                    match e {
-                        IngestorError::IrrelevantTask => {
-                            debug!("Skipping irrelevant task");
+        loop {
+            info!("Waiting for messages from {}..", consumer.queue());
+            match consumer.next().await {
+                Some(Ok(delivery)) => {
+                    if let Err(e) = self.process_delivery(&delivery.data).await {
+                        match e {
+                            IngestorError::IrrelevantTask => {
+                                debug!("Skipping irrelevant task");
+                            }
+                            _ => {
+                                error!("Failed to consume delivery: {:?}", e);
+                            }
                         }
-                        _ => {
-                            error!("Failed to consume delivery: {:?}", e);
-                        }
-                    }
 
-                    if let Err(nack_err) = queue.republish(delivery).await {
-                        error!("Failed to republish message: {:?}", nack_err);
+                        if let Err(nack_err) = queue.republish(delivery).await {
+                            error!("Failed to republish message: {:?}", nack_err);
+                        }
+                    } else if let Err(ack_err) = delivery.ack(BasicAckOptions::default()).await {
+                        error!("Failed to ack message: {:?}", ack_err);
                     }
-                } else if let Err(ack_err) = delivery.ack(BasicAckOptions::default()).await {
-                    error!("Failed to ack message: {:?}", ack_err);
+                }
+                Some(Err(e)) => {
+                    error!("Failed to receive delivery: {:?}", e);
+                }
+                None => {
+                    //TODO:  Consumer stream ended. Possibly handle reconnection logic here if needed.
+                    warn!("No more messages from consumer.");
                 }
             }
-            Some(Err(e)) => {
-                error!("Failed to receive delivery: {:?}", e);
-            }
-            None => {
-                //TODO:  Consumer stream ended. Possibly handle reconnection logic here if needed.
-                warn!("No more messages from consumer.");
-            }
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await
         }
-        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await
     }
 
     pub async fn run(&self, events_queue: Arc<Queue>, tasks_queue: Arc<Queue>) -> () {
         let mut events_consumer = events_queue.consumer().await.unwrap();
         let mut tasks_consumer = tasks_queue.consumer().await.unwrap();
 
-        loop {
-            info!("Ingestor is alive.");
+        info!("Ingestor is alive.");
 
-            join!(
-                self.work(&mut events_consumer, events_queue.clone()),
-                self.work(&mut tasks_consumer, tasks_queue.clone()),
-            );
-        }
+        select! {
+            _ = self.work(&mut events_consumer, events_queue.clone()) => {
+                warn!("Events consumer ended");
+            },
+            _ = self.work(&mut tasks_consumer, tasks_queue.clone()) => {
+                warn!("Tasks consumer ended");
+            }
+        };
     }
 
     async fn process_delivery(&self, data: &[u8]) -> Result<(), IngestorError> {
