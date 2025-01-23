@@ -1,5 +1,7 @@
 use dotenv::dotenv;
+use sentry_tracing::{layer as sentry_layer, EventFilter};
 use std::sync::Arc;
+use tracing::{error, warn, Level};
 
 use axelar_xrpl_relayer::{
     config::Config,
@@ -11,8 +13,7 @@ use axelar_xrpl_relayer::{
     xrpl::{XrplIncluder, XrplTicketCreator},
 };
 use tokio::sync::watch;
-use tracing::{self, Level};
-use tracing_subscriber::FmtSubscriber;
+use tracing_subscriber::{fmt, prelude::*, Registry};
 use xrpl_types::AccountId;
 
 #[tokio::main]
@@ -20,11 +21,29 @@ async fn main() {
     dotenv().ok();
     let config = Config::from_env().map_err(|e| anyhow::anyhow!(e)).unwrap();
 
-    let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::DEBUG)
-        .finish();
+    let _guard = sentry::init((
+        config.xrpl_relayer_sentry_dsn.to_string(),
+        sentry::ClientOptions {
+            release: sentry::release_name!(),
+            traces_sample_rate: 1.0,
+            ..Default::default()
+        },
+    ));
 
-    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
+    let fmt_layer = fmt::layer().with_target(true);
+
+    let sentry_layer = sentry_layer().event_filter(|metadata| match *metadata.level() {
+        Level::ERROR => EventFilter::Event, // Send `error` events to Sentry
+        Level::WARN => EventFilter::Event,  // Send `warn` events to Sentry
+        _ => EventFilter::Ignore,           // Ignore other levels
+    });
+
+    let subscriber = Registry::default()
+        .with(fmt_layer) // Console logging
+        .with(sentry_layer); // Sentry logging
+
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("Failed to set global tracing subscriber");
 
     let tasks_queue_arc = Queue::new(&config.queue_address, "tasks").await;
     let events_queue_arc = Queue::new(&config.queue_address, "events").await;

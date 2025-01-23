@@ -3,7 +3,7 @@ use std::{default, sync::Arc};
 use r2d2::{Pool, PooledConnection};
 use redis::Commands;
 use tokio::sync::{watch, RwLockReadGuard};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::{
     error::DistributorError,
@@ -64,7 +64,7 @@ impl Distributor {
             }
             Err(e) => {
                 warn!("Error getting tasks: {:?}", e.to_string());
-                warn!("Retrying in 2 seconds");
+                debug!("Retrying in 2 seconds");
             }
         }
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;

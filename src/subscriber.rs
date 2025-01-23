@@ -67,7 +67,7 @@ impl Subscriber {
                     }
                     Err(e) => {
                         error!("Error getting txs: {:?}", e);
-                        warn!("Retrying in 2 seconds");
+                        debug!("Retrying in 2 seconds");
                     }
                 }
             }

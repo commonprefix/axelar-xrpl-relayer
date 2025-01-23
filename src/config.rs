@@ -15,6 +15,7 @@ pub struct Config {
     pub xrpl_multisig_prover_address: String,
     pub redis_server: String,
     pub payload_cache_auth_token: String,
+    pub xrpl_relayer_sentry_dsn: String,
 }
 
 impl Config {
@@ -33,7 +34,10 @@ impl Config {
             xrpl_multisig_prover_address: env::var("XRPL_MULTISIG_PROVER_ADDRESS")
                 .context("Missing XRPL_MULTISIG_PROVER_ADDRESS")?,
             redis_server: env::var("REDIS_SERVER").context("Missing REDIS_SERVER")?,
-            payload_cache_auth_token: env::var("PAYLOAD_CACHE_AUTH_TOKEN").context("Missing PAYLOAD_CACHE_AUTH_TOKEN")?,
+            payload_cache_auth_token: env::var("PAYLOAD_CACHE_AUTH_TOKEN")
+                .context("Missing PAYLOAD_CACHE_AUTH_TOKEN")?,
+            xrpl_relayer_sentry_dsn: env::var("XRPL_RELAYER_SENTRY_DSN")
+                .context("Missing XRPL_RELAYER_SENTRY_DSN")?,
         })
     }
 }
