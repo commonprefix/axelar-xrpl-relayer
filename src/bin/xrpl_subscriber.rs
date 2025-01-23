@@ -1,20 +1,11 @@
 use dotenv::dotenv;
-use sentry_tracing::{layer as sentry_layer, EventFilter};
-use std::sync::Arc;
-use tracing::{error, warn, Level};
 
 use axelar_xrpl_relayer::{
     config::Config,
-    distributor::Distributor,
-    gmp_api,
-    ingestor::Ingestor,
     queue::Queue,
     subscriber::Subscriber,
     utils::setup_logging,
-    xrpl::{XrplIncluder, XrplTicketCreator},
 };
-use tokio::sync::watch;
-use tracing_subscriber::{fmt, prelude::*, Registry};
 use xrpl_types::AccountId;
 
 #[tokio::main]
