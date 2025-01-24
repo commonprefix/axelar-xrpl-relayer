@@ -30,8 +30,8 @@ Ensure the following services are installed and running on your system:
 1. **Clone the Repository**
 
     ```bash
-    git clone https://github.com/yourusername/axelar-relayer.git
-    cd axelar-relayer/xrpl-relayer
+    git clone https://github.com/commonprefix/axelar-relayer.git
+    cd axelar-relayer/
     ```
 
 2. **Build the Project**
