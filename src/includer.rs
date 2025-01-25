@@ -121,6 +121,11 @@ where
                 }
                 Task::Refund(refund_task) => {
                     info!("Consuming task: {:?}", refund_task);
+                    if refund_task.task.remaining_gas_balance.token_id.is_some() {
+                        return Err(IncluderError::GenericError(
+                            "Refund task with token_id is not supported".to_string(),
+                        ));
+                    }
                     let tx_blob = self
                         .refund_manager
                         .build_refund_tx(
