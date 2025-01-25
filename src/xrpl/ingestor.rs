@@ -404,15 +404,7 @@ impl XrplIngestor {
             )),
         }?;
 
-        let multisig_session_id_hex =
-            extract_from_xrpl_memo(tx_common.memos.clone(), "multisig_session_id").map_err(
-                |e| {
-                    IngestorError::GenericError(format!(
-                        "Failed to extract multisig_session_id from memos: {}",
-                        e
-                    ))
-                },
-            )?;
+        let multisig_session_id_hex = extract_memo(&tx_common.memos, "multisig_session_id")?;
         let multisig_session_id =
             u64::from_str_radix(&multisig_session_id_hex, 16).map_err(|e| {
                 IngestorError::GenericError(format!(
