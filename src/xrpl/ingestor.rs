@@ -1,12 +1,12 @@
 use core::str;
-use std::{collections::HashMap, sync::Arc, vec};
+use std::{collections::HashMap, str::FromStr, sync::Arc, vec};
 
 use multisig::key::PublicKey;
 use router_api::CrossChainId;
 use tracing::debug;
 use xrpl_amplifier_types::{
     msg::{XRPLMessage, XRPLUserMessage, XRPLUserMessageWithPayload},
-    types::{TxHash, XRPLAccountId},
+    types::{TxHash, XRPLAccountId, XRPLPaymentAmount, XRPLToken, XRPLTokenAmount},
 };
 use xrpl_api::{Memo, PaymentTransaction, Transaction, TxRequest};
 use xrpl_gateway::msg::InterchainTransfer;
@@ -44,7 +44,35 @@ async fn build_xrpl_user_message(
     let destination_address = extract_memo(memos, "destination_address")?;
     let destination_chain = extract_memo(memos, "destination_chain")?;
     // let gas_fee_amount = extract_memo(memos, "gas_fee_amount")?;
-    let deposit_amount = payment.amount.size().to_string(); // TODO: get from memo
+    let amount = if let xrpl_api::Amount::Drops(amount) = payment.amount.clone() {
+        XRPLPaymentAmount::Drops(
+            amount.parse::<u64>().map_err(|_| {
+                IngestorError::GenericError("Failed to parse amount as u64".to_owned())
+            })?,
+        )
+    } else if let xrpl_api::Amount::Issued(issued_amount) = payment.amount.clone() {
+        XRPLPaymentAmount::Issued(
+            XRPLToken {
+                issuer: issued_amount.issuer.try_into().map_err(|_| {
+                    IngestorError::GenericError(
+                        "Failed to parse issuer as XRPLAccountId".to_owned(),
+                    )
+                })?,
+                currency: issued_amount.currency.try_into().map_err(|_| {
+                    IngestorError::GenericError(
+                        "Failed to parse currency as XRPLCurrency".to_owned(),
+                    )
+                })?,
+            },
+            XRPLTokenAmount::from_str(&issued_amount.value).map_err(|_| {
+                IngestorError::GenericError("Failed to parse amount as XRPLTokenAmount".to_owned())
+            })?,
+        )
+    } else {
+        return Err(IngestorError::GenericError(
+            "Payment amount must be either Drops or Issued".to_owned(),
+        ));
+    };
     let payload_hash_memo = extract_memo(memos, "payload_hash");
     let payload_memo = extract_memo(memos, "payload");
 
@@ -107,15 +135,7 @@ async fn build_xrpl_user_message(
             destination_address: destination_addr_bytes.try_into().unwrap(),
             destination_chain: destination_chain_str.try_into().unwrap(),
             payload_hash: None,
-            amount: xrpl_amplifier_types::types::XRPLPaymentAmount::Drops(
-                payment.amount.size() as u64
-            ), // TODO: Recover this
-               // amount: xrpl_amplifier_types::types::XRPLPaymentAmount::Drops(
-               //     str::from_utf8(hex::decode(deposit_amount).unwrap().as_slice())
-               //         .unwrap()
-               //         .parse::<u64>()
-               //         .unwrap(),
-               // ),
+            amount,
         },
         payload: None,
     };
@@ -324,15 +344,8 @@ impl XrplIngestor {
             .ok_or(IngestorError::GenericError(
                 "Payment transaction missing field 'hash'".to_owned(),
             ))?;
-        let total_amount = payment.amount.size() as u64; // TODO: size should probably not be used
-        let deposit_amount = total_amount; // TODO: get from memo
-                                           // let deposit_amount_memo = extract_memo(&payment.common.memos, "deposit")?;
-                                           // let deposit_amount = str::from_utf8(hex::decode(deposit_amount_memo).unwrap().as_slice())
-                                           //     .unwrap()
-                                           //     .to_string()
-                                           //     .parse::<u64>()
-                                           //     .unwrap(); // TODO: should this be a u64?
-        let gas_amount = total_amount - deposit_amount;
+
+        let gas_amount = 0; // TODO: get from memo
         Ok(Event::GasCredit {
             common: CommonEventFields {
                 r#type: "GAS_CREDIT".to_owned(),
@@ -528,7 +541,7 @@ impl XrplIngestor {
                                 source_chain: "source".to_owned(), // TODO
                                 cost: Amount {
                                     token_id: None,
-                                    amount: tx.amount.size().to_string(),
+                                    amount: common.fee,
                                 },
                                 meta: None,
                             };
