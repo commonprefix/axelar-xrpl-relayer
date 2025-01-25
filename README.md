@@ -1,21 +1,21 @@
-## Axelar XRPL Relayer
+# Axelar XRPL Relayer
 
-### Components
-- **Subscriber**
-  - **Description:** Monitors the XRPL for incoming transactions.
-  - **Function:** Listens for transactions on XRPL and publishes them to a local RabbitMQ instance for further processing.
+## Components
+### Subscriber
+- **Description:** Monitors the XRPL for incoming transactions.
+- **Function:** Listens for transactions on XRPL and publishes them to a local RabbitMQ instance for further processing.
   
-- **Distributor**
-  - **Description:** Manages task distribution from the GMP API.
-  - **Function:** Listens for tasks from the GMP API and enqueues them into RabbitMQ for downstream processing by other components.
+### Distributor
+- **Description:** Manages task distribution from the GMP API.
+- **Function:** Listens for tasks from the GMP API and enqueues them into RabbitMQ for downstream processing by other components.
   
-- **Ingestor**
-  - **Description:** Processes queued messages related to XRPL transactions and GMP API tasks.
-  - **Function:** Consumes and processes messages from RabbitMQ, handling tasks such as transaction verification and routing.
+### Ingestor
+- **Description:** Processes queued messages related to XRPL transactions and GMP API tasks.
+- **Function:** Consumes and processes messages from RabbitMQ, handling tasks such as transaction verification and routing.
   
-- **Includer**
-  - **Description:** Handles transaction creation on the XRPL.
-  - **Function:** Consumes tasks from RabbitMQ to create transactions on the XRPL, including actions like issuing refunds or submitting prover messages.
+### Includer
+- **Description:** Handles transaction creation on the XRPL.
+- **Function:** Consumes tasks from RabbitMQ to create transactions on the XRPL, including actions like issuing refunds or submitting prover messages.
 
 ## Setup
 
@@ -30,8 +30,8 @@ Ensure the following services are installed and running on your system:
 1. **Clone the Repository**
 
     ```bash
-    git clone https://github.com/yourusername/axelar-relayer.git
-    cd axelar-relayer/xrpl-relayer
+    git clone https://github.com/commonprefix/axelar-relayer.git
+    cd axelar-relayer/
     ```
 
 2. **Build the Project**
