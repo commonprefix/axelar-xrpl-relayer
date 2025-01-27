@@ -10,7 +10,7 @@ async fn main() {
     dotenv().ok();
     let config = Config::from_env().map_err(|e| anyhow::anyhow!(e)).unwrap();
 
-    let _ = setup_logging(&config);
+    let _guard = setup_logging(&config);
 
     let tasks_queue = Queue::new(&config.queue_address, "tasks").await;
     let gmp_api = Arc::new(gmp_api::GmpApi::new(&config.gmp_api_url, "xrpl").unwrap());
