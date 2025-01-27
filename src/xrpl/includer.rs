@@ -2,7 +2,7 @@ use libsecp256k1::{PublicKey, SecretKey};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::debug;
-use xrpl_api::SubmitRequest;
+use xrpl_api::{SubmitRequest, TransactionResult};
 use xrpl_binary_codec::serialize;
 use xrpl_binary_codec::sign::sign_transaction;
 use xrpl_types::PaymentTransaction;
@@ -73,12 +73,12 @@ impl RefundManager for XRPLRefundManager {
         &self,
         recipient: String,
         drops: String,
-    ) -> Result<String, RefundManagerError> {
-        let drops_u64 = drops.parse::<u64>().map_err(|e| {
+    ) -> Result<Option<(String, String, String)>, RefundManagerError> {
+        let pre_fee_amount_drops = drops.parse::<u64>().map_err(|e| {
             RefundManagerError::GenericError(format!("Invalid drops amount '{}': {}", drops, e))
         })?;
 
-        let amount = Amount::drops(drops_u64).map_err(|e| {
+        let pre_fee_amount = Amount::drops(pre_fee_amount_drops).map_err(|e| {
             RefundManagerError::GenericError(format!("Failed to parse amount: {}", e.to_string()))
         })?;
 
@@ -86,12 +86,27 @@ impl RefundManager for XRPLRefundManager {
             RefundManagerError::GenericError(format!("Invalid recipient address: {}", e))
         })?;
 
-        let mut tx = PaymentTransaction::new(self.account_id, amount, recipient_account);
+        let mut tx = PaymentTransaction::new(self.account_id, pre_fee_amount, recipient_account);
 
         self.client
             .prepare_transaction(&mut tx.common)
             .await
             .map_err(|e| RefundManagerError::GenericError(e.to_string()))?;
+
+        let fee = tx
+            .common
+            .fee
+            .ok_or_else(|| RefundManagerError::GenericError("Fee not set".to_string()))?;
+
+        let actual_refund_amount = pre_fee_amount_drops as i64 - fee.drops() as i64;
+
+        if actual_refund_amount <= 0 {
+            return Ok(None);
+        }
+
+        tx.amount = Amount::drops(actual_refund_amount as u64).map_err(|e| {
+            RefundManagerError::GenericError(format!("Failed to parse amount: {}", e.to_string()))
+        })?;
 
         sign_transaction(&mut tx, &self.public_key, &self.secret_key)
             .map_err(|e| RefundManagerError::GenericError(format!("Sign error: {}", e)))?;
@@ -99,7 +114,11 @@ impl RefundManager for XRPLRefundManager {
         let tx_bytes = serialize::serialize(&tx)
             .map_err(|e| RefundManagerError::GenericError(format!("Serialization error: {}", e)))?;
 
-        Ok(hex::encode_upper(tx_bytes))
+        Ok(Some((
+            hex::encode_upper(tx_bytes),
+            actual_refund_amount.to_string(),
+            fee.drops().to_string(),
+        )))
     }
 }
 
@@ -122,9 +141,17 @@ impl Broadcaster for XRPLBroadcaster {
             .await
             .map_err(|e| BroadcasterError::RPCCallFailed(e.to_string()))?;
 
-        serde_json::to_string(&response).map_err(|e| {
-            BroadcasterError::RPCCallFailed(format!("JSON serialization error: {}", e))
-        })
+        if response.engine_result == TransactionResult::tesSUCCESS {
+            let tx_hash = response.tx_json.common().hash.as_ref().ok_or_else(|| {
+                BroadcasterError::RPCCallFailed("Transaction hash not found".to_string())
+            })?;
+            Ok(tx_hash.clone())
+        } else {
+            Err(BroadcasterError::RPCCallFailed(format!(
+                "Transaction failed: {}",
+                response.engine_result_message
+            )))
+        }
     }
 }
 

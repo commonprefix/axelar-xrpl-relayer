@@ -17,7 +17,7 @@ pub trait RefundManager {
         &self,
         recipient: String,
         amount: String,
-    ) -> impl Future<Output = Result<String, RefundManagerError>>; // returns signed tx_blob
+    ) -> impl Future<Output = Result<Option<(String, String, String)>, RefundManagerError>>;
 }
 
 pub trait Broadcaster {
@@ -126,19 +126,44 @@ where
                             "Refund task with token_id is not supported".to_string(),
                         ));
                     }
-                    let tx_blob = self
+                    let refund_info = self
                         .refund_manager
                         .build_refund_tx(
-                            refund_task.task.refund_recipient_address,
+                            refund_task.task.refund_recipient_address.clone(),
                             refund_task.task.remaining_gas_balance.amount, // TODO: check if this is correct
                         )
                         .await
                         .map_err(|e| IncluderError::ConsumerError(e.to_string()))?;
-                    self.broadcaster
-                        .broadcast(tx_blob)
-                        .await
-                        .map_err(|e| IncluderError::ConsumerError(e.to_string()))?;
-                    // TODO: publish GAS_REFUNED event
+
+                    if let Some((tx_blob, refunded_amount, fee)) = refund_info {
+                        let tx_hash = self
+                            .broadcaster
+                            .broadcast(tx_blob)
+                            .await
+                            .map_err(|e| IncluderError::ConsumerError(e.to_string()))?;
+
+                        let gas_refunded = Event::GasRefunded {
+                            common: CommonEventFields {
+                                r#type: "GAS_REFUNDED".to_owned(),
+                                event_id: tx_hash
+                            },
+                            recipient_address: refund_task.task.refund_recipient_address,
+                            refunded_amount: Amount {
+                                token_id: None,
+                                amount: refunded_amount,
+                            },
+                            cost: Amount {
+                                token_id: None,
+                                amount: fee,
+                            },
+                        };
+
+                        let gas_refunded_post = self.gmp_api.post_events(vec![gas_refunded]).await;
+                        if gas_refunded_post.is_err() {
+                            // TODO: should retry somehow
+                            warn!("Failed to post event: {:?}", gas_refunded_post.unwrap_err());
+                        }
+                    }
                     Ok(())
                 }
                 _ => Err(IncluderError::IrrelevantTask),

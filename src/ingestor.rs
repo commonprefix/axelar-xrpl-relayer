@@ -146,10 +146,6 @@ impl Ingestor {
                     .handle_construct_proof(construct_proof_task)
                     .await
             }
-            Task::Refund(_) => {
-                error!("GasRefund task is not implemented");
-                todo!()
-            }
             _ => Err(IngestorError::IrrelevantTask),
         }
     }
