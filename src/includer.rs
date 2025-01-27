@@ -163,6 +163,8 @@ where
                             // TODO: should retry somehow
                             warn!("Failed to post event: {:?}", gas_refunded_post.unwrap_err());
                         }
+                    } else {
+                        warn!("Refund not executed: refund amount is not enough to cover tx fees");
                     }
                     Ok(())
                 }
