@@ -5,7 +5,7 @@ const { logError, delay, fetchEvents, processEvent, getCurrentAxelarHeight, isKn
 const { createClient } = require('redis');
 
 const app = express();
-const port = 3001;
+const port = process.env.PORT;
 const redisClient = createClient({ url: process.env.REDIS_SERVER });
 
 const AXELAR_SENDER = process.env.GMP_API_WALLET;

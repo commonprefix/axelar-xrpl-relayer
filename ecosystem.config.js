@@ -11,9 +11,22 @@ module.exports = {
       watch: false,
     },
     {
-      name: "gmp-api",
+      name: "gmp-api-devnet-its",
       script: "mock-gmp-api/index.js",
       watch: false,
+      env: {
+        ENV_PATH: ".env_devnet-its",
+        PORT: "3001",
+      }
+    },
+    {
+      name: "gmp-api-devnet-amplifier",
+      script: "mock-gmp-api/index.js",
+      watch: false,
+      env: {
+        ENV_PATH: ".env_devnet-amplifier",
+        PORT: "3002",
+      }
     }
   ]
 };
