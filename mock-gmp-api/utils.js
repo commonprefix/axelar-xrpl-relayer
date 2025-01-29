@@ -157,7 +157,7 @@ async function handleRoutingOutgoing(event, height) {
     const destinationChain = event.attributes.find(attr => attr.key === 'destination_chain')?.value;
     const payloadHash = event.attributes.find(attr => attr.key === 'payload_hash')?.value;
 
-    if (destinationChain !== 'xrpl') {
+    if (destinationChain !== 'xrpl' && destinationChain !== 'xrpl-devnet') {
         return null;
     }
 
@@ -212,7 +212,7 @@ async function handleSigningCompleted(event, height) {
     const chain = event.attributes.find(attr => attr.key === 'chain')?.value;
     const sessionId = event.attributes.find(attr => attr.key === 'session_id')?.value;
 
-    if (chain !== 'xrpl') {
+    if (chain !== 'xrpl' && chain !== 'xrpl-devnet') {
         return null;
     }
 
