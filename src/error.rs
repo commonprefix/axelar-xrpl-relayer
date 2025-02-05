@@ -54,6 +54,8 @@ pub enum GmpApiError {
     InvalidResponse(String),
     #[error("Invalid Request: {0}")]
     InvalidRequest(String),
+    #[error("Generic error: {0}")]
+    GenericError(String),
 }
 
 #[derive(Error, Debug)]

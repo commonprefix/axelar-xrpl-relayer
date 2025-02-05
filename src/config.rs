@@ -16,6 +16,9 @@ pub struct Config {
     pub redis_server: String,
     pub payload_cache_auth_token: String,
     pub xrpl_relayer_sentry_dsn: String,
+    pub chain_name: String,
+    pub client_cert_path: String,
+    pub client_key_path: String,
 }
 
 impl Config {
@@ -38,6 +41,9 @@ impl Config {
                 .context("Missing PAYLOAD_CACHE_AUTH_TOKEN")?,
             xrpl_relayer_sentry_dsn: env::var("XRPL_RELAYER_SENTRY_DSN")
                 .context("Missing XRPL_RELAYER_SENTRY_DSN")?,
+            chain_name: env::var("CHAIN_NAME").context("Missing CHAIN_NAME")?,
+            client_cert_path: env::var("CLIENT_CERT_PATH").context("Missing CLIENT_CERT_PATH")?,
+            client_key_path: env::var("CLIENT_KEY_PATH").context("Missing CLIENT_KEY_PATH")?,
         })
     }
 }

@@ -1,16 +1,18 @@
 pub mod gmp_types;
 
-use async_stream::stream;
-use core::str;
-use futures::Stream;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use std::{collections::HashMap, pin::Pin, time::Duration};
+use std::{
+    collections::HashMap,
+    fs::{self},
+    path::PathBuf,
+    time::Duration,
+};
 use tracing::{debug, info, warn};
 
-use reqwest::Client;
+use reqwest::{Client, Identity};
 
-use crate::{error::GmpApiError, utils::parse_task};
+use crate::{config::Config, error::GmpApiError, utils::parse_task};
 use gmp_types::{BroadcastRequest, Event, PostEventResponse, PostEventResult, QueryRequest, Task};
 
 pub struct GmpApi {
@@ -20,20 +22,48 @@ pub struct GmpApi {
 }
 
 const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(10);
-const TASKS_POLL_INTERVAL: Duration = Duration::from_secs(1);
+
+fn identity_from_config(config: &Config) -> Result<Identity, GmpApiError> {
+    let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+
+    let key_path = project_root.join(&config.client_key_path);
+    let cert_path = project_root.join(&config.client_cert_path);
+
+    let key = fs::read(&key_path).map_err(|e| {
+        GmpApiError::GenericError(format!(
+            "Failed to read client key from {:?}: {}",
+            key_path, e
+        ))
+    })?;
+
+    let cert = fs::read(&cert_path).map_err(|e| {
+        GmpApiError::GenericError(format!(
+            "Failed to read client certificate from {:?}: {}",
+            cert_path, e
+        ))
+    })?;
+
+    Identity::from_pkcs8_pem(&cert, &key).map_err(|e| {
+        GmpApiError::GenericError(format!(
+            "Failed to create identity from certificate and key: {}",
+            e
+        ))
+    })
+}
 
 impl GmpApi {
-    pub fn new(rpc_url: &str, chain: &str) -> Result<Self, GmpApiError> {
+    pub fn new(config: &Config) -> Result<Self, GmpApiError> {
         let client = reqwest::ClientBuilder::new()
             .connect_timeout(DEFAULT_RPC_TIMEOUT.into())
             .timeout(DEFAULT_RPC_TIMEOUT)
+            .identity(identity_from_config(config)?)
             .build()
             .map_err(|e| GmpApiError::ConnectionFailed(e.to_string()))?;
 
         Ok(Self {
-            rpc_url: rpc_url.to_owned(),
+            rpc_url: config.gmp_api_url.to_owned(),
             client,
-            chain: chain.to_owned(),
+            chain: config.chain_name.to_owned(),
         })
     }
 
@@ -64,10 +94,10 @@ impl GmpApi {
     async fn request_json<T: DeserializeOwned>(
         request: reqwest::RequestBuilder,
     ) -> Result<T, GmpApiError> {
-        let response = request
-            .send()
-            .await
-            .map_err(|e| GmpApiError::RequestFailed(e.to_string()))?;
+        let response = request.send().await.map_err(|e| {
+            debug!("{:?}", e);
+            return GmpApiError::RequestFailed(e.to_string());
+        })?;
 
         response
             .error_for_status_ref()
@@ -105,20 +135,6 @@ impl GmpApi {
                 }
             })
             .collect::<Vec<_>>())
-    }
-
-    pub fn get_tasks(&self, after: Option<i64>) -> Pin<Box<dyn Stream<Item = Vec<Task>> + '_>> {
-        let s = stream! {
-            loop {
-                match self.get_tasks_action(after).await {
-                    Ok(tasks) => yield tasks,
-                    Err(e) => warn!("Failed to get tasks: {:?}", e)
-                }
-                tokio::time::sleep(TASKS_POLL_INTERVAL).await;
-            }
-        };
-
-        Box::pin(s)
     }
 
     pub async fn post_events(
