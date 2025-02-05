@@ -79,12 +79,12 @@ impl GmpApi {
             .map_err(|e| GmpApiError::InvalidResponse(e.to_string()))
     }
 
-    pub async fn get_tasks_action(&self, after: Option<i64>) -> Result<Vec<Task>, GmpApiError> {
+    pub async fn get_tasks_action(&self, after: Option<String>) -> Result<Vec<Task>, GmpApiError> {
         let request_url = format!("{}/chains/{}/tasks", self.rpc_url, self.chain);
         let mut request = self.client.get(&request_url);
 
         if let Some(after) = after {
-            request = request.query(&[("after", after)]);
+            request = request.query(&[("after", &after)]);
             debug!("Requesting tasks after: {}", after);
         }
 
